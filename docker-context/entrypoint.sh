@@ -128,8 +128,9 @@ function START_svnserver()
     chmod 755 /volume/svnrepo/svn
   fi
 
-  echo -e " * Starting svnserve."
-  svnserve -d -r /volume/svnrepo/svn --listen-port 3690 
+  echo -e " * Starting svnserve as www-data user."
+  # Run svnserve as www-data user with umask 022 so created files are readable
+  su -s /bin/bash -c "umask 022 && svnserve -d -r /volume/svnrepo/svn --listen-port 3690" www-data
 }
 
 function STOP_svnserver()
