@@ -1,0 +1,66 @@
+<div class="usvn_info">
+	<h1><?php echo T_("Homepage"); ?></h1>
+</div>
+<div id="usvn_index_projects" class="usvn_index_box">
+	<h3><?php echo T_("Your projects"); ?>:</h3>
+<?php if (count($this->projects)): ?>
+    <ul class="grid_list">
+	<?php foreach ($this->projects as $project): ?>
+		<li>
+			<a href="<?php echo $this->url(array('project' => $project->name), 'project'); ?>">
+				<div class="grid_img">
+					<?php echo $this->img('box48.png'); ?>
+				</div>
+				<div><?php
+					if (strlen($project->name) > $this->maxlen) {
+						echo substr($project->name, 0, $this->maxlen), '<br />';
+						if (strlen($project->name) > ($this->maxlen * 2 - 3)) {
+							echo substr($project->name, $this->maxlen, $this->maxlen - 3), '...';
+						} else {
+							echo substr($project->name, $this->maxlen);
+						}
+					} else {
+				 		echo $project->name;
+					}
+				?></div>
+			</a>
+		</li>
+	<?php endforeach; ?>
+	</ul>
+<?php else: ?>
+	<p><?php echo T_("You don't have any project."); ?></p>
+<?php endif; ?>
+</div>
+<div id="usvn_index_groups" class="usvn_index_box">
+	<h3><?php echo T_("Your groups"); ?>:</h3>
+<?php if (count($this->groups)): ?>
+	<ul class="grid_list">
+	<?php foreach ($this->groups as $group): ?>
+		<li>
+			<a href="<?php echo $this->url(array('group' => $group->name), 'group'); ?>">
+				<div class="grid_img">
+					<?php echo $this->img('group48.png'); ?>
+				</div>
+				<div><?php
+				 	if (strlen($group->name) > $this->maxlen) {
+						echo substr($group->name, 0, $this->maxlen), '<br />';
+						if (strlen($group->name) > ($this->maxlen * 2 - 3)) {
+							echo substr($group->name, $this->maxlen, $this->maxlen - 3), '...';
+						} else {
+							echo substr($group->name, $this->maxlen);
+						}
+					} else {
+				 		echo $group->name;
+					}
+				?></div>
+			</a>
+		</li>
+	<?php endforeach; ?>
+	</ul>
+<?php else: ?>
+	<p><?php echo T_("You are not assign to a group."); ?></p>
+<?php endif; ?>
+</div>
+<div style="clear: both;">
+	<img width="1" height="1" src="<?php echo $this->url(array('controller' => 'checkupdate')); ?>" />
+</div>

@@ -1,0 +1,104 @@
+<div class="usvn_info">
+	<h1><?php echo T_($installSteps[$step]); ?></h1>
+	<p><?php echo T_('Check everything is all right to install USVN.'); ?></p>
+</div>
+<table id="system_check">
+	<tr>
+	  <?php
+	  /* DEBUG */
+    // foreach ($errors as &$anError)
+    //       $anError = 'ko';
+	  ?>
+		<?php
+			$ok = '<img src="./medias/usvn/images/accepted_16.png" />';
+			$ko = '<img src="./medias/usvn/images/cancel_16.png" />';
+			$okstr = T_('%s is installed.');
+			$kostr = T_('%s has not been detected.');
+		?>
+		<td><?php echo ($errors['safe_mode'] == 'ko' ? $ko : $ok); ?></td>
+		<td><?php echo T_($errors['safe_mode'] == 'ko' ? 'PHP safe mode should be disabled.' : 'PHP safe mode is disabled.'); ?></td>
+	</tr>
+	<tr>
+		<td><?php echo ($errors['svn'] == 'ko' ? $ko : $ok); ?></td>
+		<td><?php echo sprintf(($errors['svn'] == 'ko' ? $kostr : $okstr), 'Subversion'); ?></td>
+	</tr>
+	<tr>
+		<td><?php echo ($errors['mod_rewrite'] == 'ko' ? $ko : $ok); ?></td>
+		<td><?php echo sprintf(($errors['mod_rewrite'] == 'ko' ? $kostr : $okstr), 'mod_rewrite'); ?></td>
+	</tr>
+	<tr>
+		<td><?php echo ($errors['mod_dav_svn'] == 'ko' ? $ko : $ok); ?></td>
+		<td><?php echo sprintf(($errors['mod_dav_svn'] == 'ko' ? $kostr : $okstr), 'mod_dav_svn'); ?></td>
+	</tr>
+	<tr>
+		<td><?php echo ($errors['mod_authz_svn'] == 'ko' ? $ko : $ok); ?></td>
+		<td><?php echo sprintf(($errors['mod_authz_svn'] == 'ko' ? $kostr : $okstr), 'mod_authz_svn'); ?></td>
+	</tr>
+	<tr>
+		<td><?php echo ($errors['public'] == 'ko' ? $ko : $ok); ?></td>
+		<td>
+      <?php if ($errors['public'] == 'ko'): ?>
+      On "public" folder USVN should have:
+      <ul>
+        <li>temporary write access for install</li>
+        <li>read access</li>
+      </ul>
+      <?php else: ?>
+      Good rights on "public".
+      <?php endif; ?>
+    </td>
+	</tr>
+	<tr>
+		<td><?php echo ($errors['config'] == 'ko' ? $ko : $ok); ?></td>
+		<td>
+      <?php if ($errors['config'] == 'ko'): ?>
+      On "config" folder USVN should have:
+      <ul>
+        <li>permanent write access</li>
+        <li>permanent read access</li>
+      </ul>
+      <?php else: ?>
+      Good rights on "config".
+      <?php endif; ?>
+    </td>
+	</tr>
+</table>
+<?php
+	if (isset($_GET['force']) or !in_array('ko', $errors))
+	{
+?>
+	<br />
+	<hr />
+	<form action="?step=2" method="post">
+		<div>
+			<input type="submit" value="<?php echo T_('Next step'); ?>" />
+		</div>
+	</form>
+<?php
+}
+else
+{
+?>
+	<br />
+	<form action="?step=1" method="post">
+		<div>
+			<input type="submit" value="<?php echo T_('Refresh'); ?>" />
+		</div>
+	</form>
+	<br />
+	<hr />
+	<form name="forceForm" action="?step=1&force" method="post">
+		<div>
+			<p>You can force installation but it's problably not a good idea.</p>
+			I'm sure: <input type="checkbox" onclick="document.forceForm.ok.disabled = !document.forceForm.forceCheck.checked;" name="forceCheck">
+			<br />
+			<br />
+			<input type="submit" value="<?php echo T_("Force installation"); ?>" name="ok" />
+		</div>
+	</form>
+	<script>
+	document.forceForm.ok.disabled = true;
+	</script>
+<?php
+}
+?>

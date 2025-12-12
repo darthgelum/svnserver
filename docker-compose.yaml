@@ -1,0 +1,42 @@
+version: '3.0'
+#############################
+# Markus Hilsenbeck
+# USVN server with svn:// protocol and web GUI
+#
+    
+services:
+  usvn:
+    build: 
+      context: .
+      dockerfile: docker-context/Dockerfile
+      args: 
+        - CACHE_DATE="not_set"
+    image: usvn.svn:local
+    container_name: usvn.svn
+    stdin_open: true # docker run -i
+    tty: true        # docker run -t
+    restart: always
+    hostname: usvn
+    environment:
+      - ENABLE_SVNSERVER=true
+      - ENABLE_APACHE=true
+    ports:
+      # svn protocol: svn://
+      - 0.0.0.0:3690:3690/tcp
+      # USVN web interface: http://localhost:8080/usvn/
+      - 0.0.0.0:8080:80/tcp
+    volumes:
+      #- /etc/TZ:/etc/timezone:ro           # enable for DSM7
+      #- /etc/timezone:/etc/timezone:ro     # enable for others
+      - /etc/localtime:/etc/localtime:ro
+      - ./volume/svnrepo:/volume/svnrepo:rw
+      - ./volume/usvn:/volume/usvn:rw
+
+    networks:
+      - usvn_network
+
+# define networks
+networks:
+  usvn_network:
+    name: usvn_network
+    driver: bridge

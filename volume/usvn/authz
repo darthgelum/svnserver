@@ -1,0 +1,27 @@
+# This is an auto generated file! Edit at your own risk!
+# You can edit this "/" section. Settings will be kept.
+#
+[/]
+* = 
+
+#
+# Don't edit anything below! All manual changes will be overwritten. 
+#
+
+[groups]
+test3 = admin
+
+
+# Project test3
+[test3:/]
+@test3 = r
+
+[test3:/branches]
+@test3 = rw
+
+[test3:/tags]
+@test3 = rw
+
+[test3:/trunk]
+@test3 = rw
+

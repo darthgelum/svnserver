@@ -1,0 +1,14 @@
+--- a/app/controllers/RepositoryController.php
++++ b/app/controllers/RepositoryController.php
+@@ -50,6 +50,11 @@ class RepositoryController extends USVN_Controller
+             
+             $project = USVN_Project::createProject(array("projects_name" => $name));
+             
++            // Auto-configure repository for svnserve
++            $repoPath = $project->getPath();
++            exec("/usr/local/bin/configure-repo '$repoPath' > /dev/null 2>&1 &");
++            exec('/usr/local/bin/sync-passwd > /dev/null 2>&1 &');
++            
+             USVN_Translation::addMessage(sprintf(T_("Repository %s created."), $name));
+             $this->_redirect("/repository/index");
+         }
