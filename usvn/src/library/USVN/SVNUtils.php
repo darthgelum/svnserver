@@ -205,8 +205,9 @@ class USVN_SVNUtils
 		throw new USVN_Exception(T_("Can't create subversion repository: %s"), $message);
       }
       
-      // Set proper permissions recursively so svnserve and Apache can access the repository
+      // Set proper ownership and permissions recursively so svnserve and Apache can access the repository
       // svnadmin create uses restrictive umask, so we need to open it up
+      USVN_ConsoleUtils::runCmdCaptureMessage("chown -R www-data:www-data $escape_path", $return);
       USVN_ConsoleUtils::runCmdCaptureMessage("chmod -R 755 $escape_path", $return);
       
       // Automatically configure svnserve authentication for this repository
