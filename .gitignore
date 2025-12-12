@@ -6,3 +6,5 @@ volume/monitorix.data/*
 
 volume/svnrepo/*
 !volume/svnrepo/.gitignore
+
+volume/usvn/*

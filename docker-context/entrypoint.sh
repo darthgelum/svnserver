@@ -41,6 +41,11 @@ copy_volume_folder () {
 init_volume_folder "svnrepo"
 init_volume_folder "usvn"
 
+# Ensure svnrepo has proper permissions for www-data (USVN needs to create repos)
+chown -R www-data:www-data /volume/svnrepo
+chmod -R 777 /volume/svnrepo
+echo -e " * SVN repository folder permissions set for www-data."
+
 # Configure svnserve to use USVN authentication files
 # This function updates all repository svnserve.conf files
 configure_svnserve_auth() {
