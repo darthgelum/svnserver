@@ -108,6 +108,14 @@ function START_svnserver()
     return
   fi
 
+  # Create svn directory if it doesn't exist
+  if [ ! -d "/volume/svnrepo/svn" ]; then
+    echo -e " * Creating /volume/svnrepo/svn directory."
+    mkdir -p /volume/svnrepo/svn
+    chown www-data:www-data /volume/svnrepo/svn
+    chmod 755 /volume/svnrepo/svn
+  fi
+
   echo -e " * Starting svnserve."
   svnserve -d -r /volume/svnrepo/svn --listen-port 3690 
 }
