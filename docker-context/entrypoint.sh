@@ -46,6 +46,18 @@ chown -R www-data:www-data /volume/svnrepo
 chmod -R 777 /volume/svnrepo
 echo -e " * SVN repository folder permissions set for www-data."
 
+# Fix permissions on any existing repositories (they might have restrictive perms from svnadmin)
+if [ -d "/volume/svnrepo/svn" ]; then
+  echo -e " * Fixing permissions on existing repositories."
+  for repo_dir in /volume/svnrepo/svn/*/; do
+    if [ -d "$repo_dir" ]; then
+      chown -R www-data:www-data "$repo_dir"
+      chmod -R 755 "$repo_dir"
+      echo -e "   - Fixed: $(basename "$repo_dir")"
+    fi
+  done
+fi
+
 # Configure svnserve to use USVN authentication files
 # This function updates all repository svnserve.conf files
 configure_svnserve_auth() {
