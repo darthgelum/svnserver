@@ -205,6 +205,12 @@ class USVN_SVNUtils
 		throw new USVN_Exception(T_("Can't create subversion repository: %s"), $message);
       }
       
+      // Set proper permissions so svnserve and Apache can access the repository
+      @chmod($path, 0755);
+      @chmod($path . '/db', 0755);
+      @chmod($path . '/conf', 0755);
+      @chmod($path . '/hooks', 0755);
+      
       // Automatically configure svnserve authentication for this repository
       USVN_SVNUtils::configureSvnserveAuth($path);
     }
