@@ -335,7 +335,7 @@ def configure_mirror():
     for name in ('config', 'secrets'):
         (root / name).mkdir(exist_ok=True)
     (root / 'secrets').chmod(0o700)
-    environment = f'MIRROR_DATA={data}\nBIND_IP={bind}\nMIRROR_PORT=18080\nLIVE_PORT=18081\nSYNC_INTERVAL_SECONDS=30\nMAX_SYNC_AGE_SECONDS=1800\nREVPROP_RESCAN_SECONDS=86400\n'
+    environment = f'COMPOSE_PROJECT_NAME=svn-second-mirror\nMIRROR_DATA={data}\nBIND_IP={bind}\nMIRROR_PORT=18080\nLIVE_PORT=18081\nSYNC_INTERVAL_SECONDS=30\nMAX_SYNC_AGE_SECONDS=1800\nREVPROP_RESCAN_SECONDS=86400\n'
     if existing:
         environment += 'EXISTING_REPOS=' + existing + '\n'
     outputs[0].write_text(environment)

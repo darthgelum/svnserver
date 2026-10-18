@@ -1,4 +1,6 @@
-name: svn-second-mirror
+# Compatible with Synology's standalone docker-compose v1 and Compose v2.
+# Set the project explicitly with -p svn-second-mirror.
+version: "3.2"
 services:
   mirror:
     image: svn-second-mirror:local
