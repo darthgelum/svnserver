@@ -1,0 +1,30 @@
+# Overlay: docker compose -f compose.belgrade.yaml -f compose.https.yaml up -d
+services:
+  https:
+    image: svn-second-mirror-tls:local
+    build: ./tls
+    restart: unless-stopped
+    stop_grace_period: 60s
+    depends_on:
+      - master-http
+    ports:
+      - "${TLS_BIND_IP:-0.0.0.0}:${ACME_HTTP_PORT:-18083}:80"
+      - "${TLS_BIND_IP:-0.0.0.0}:${SVN_HTTPS_PORT:-18443}:443"
+    environment:
+      PUBLIC_IP: ${PUBLIC_IP:?Set PUBLIC_IP to the permanent public IPv4 address}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL}
+      ACME_SERVER: ${ACME_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
+      RENEW_INTERVAL_SECONDS: ${RENEW_INTERVAL_SECONDS:-43200}
+      ACME_RETRY_SECONDS: ${ACME_RETRY_SECONDS:-900}
+    volumes:
+      - ${TLS_DATA:?Set TLS_DATA outside Drive ShareSync}:/etc/letsencrypt
+    healthcheck:
+      test: ["CMD", "python3", "/app/run.py", "health"]
+      interval: 5m
+      timeout: 15s
+      retries: 2
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
