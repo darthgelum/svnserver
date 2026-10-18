@@ -334,6 +334,7 @@ def configure_mirror():
         raise ValueError('Use an absolute existing repository parent path without spaces or ..')
     for name in ('config', 'secrets'):
         (root / name).mkdir(exist_ok=True)
+    (root / 'config').chmod(0o755)
     (root / 'secrets').chmod(0o700)
     environment = f'COMPOSE_PROJECT_NAME=svn-second-mirror\nMIRROR_DATA={data}\nBIND_IP={bind}\nMIRROR_PORT=18080\nLIVE_PORT=18081\nSYNC_INTERVAL_SECONDS=30\nMAX_SYNC_AGE_SECONDS=1800\nREVPROP_RESCAN_SECONDS=86400\n'
     if existing:
@@ -341,6 +342,7 @@ def configure_mirror():
     outputs[0].write_text(environment)
     outputs[0].chmod(0o600)
     outputs[1].write_text(json.dumps({'auto_discover': True, 'master_base_url': origin, 'sync_auth': True}, indent=2) + '\n')
+    outputs[1].chmod(0o644)
     outputs[2].write_text(json.dumps({'default': {'username': username, 'password': password}}, indent=2) + '\n')
     outputs[2].chmod(0o600)
     if existing:
