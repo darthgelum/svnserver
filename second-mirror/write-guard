@@ -1,0 +1,8 @@
+#!/usr/bin/python3
+import os
+import sys
+
+# Only the local replication process can change the mirror. Apache cannot.
+if os.geteuid() != 10001:
+    sys.stderr.write("This repository is a mirror; write to the master server.\n")
+    sys.exit(1)

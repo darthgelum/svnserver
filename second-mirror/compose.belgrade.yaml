@@ -1,0 +1,15 @@
+name: svn-belgrade-http
+services:
+  master-http:
+    image: svn-second-mirror:local
+    build: .
+    restart: unless-stopped
+    stop_grace_period: 60s
+    ports:
+      - "${MASTER_BIND_IP:-127.0.0.1}:${MASTER_PORT:-18082}:80"
+    environment:
+      ROLE: master
+    volumes:
+      - ${MASTER_REPOS:?Set MASTER_REPOS}:/repositories
+      - ${MASTER_AUTH_DIR:-./auth}:/auth:ro
+      - ${MASTER_CONFIG_FILE:-./config/master.json}:/config/repos.json:ro

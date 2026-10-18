@@ -1,0 +1,10 @@
+{
+  "repositories": [
+    {
+      "name": "BrassRain",
+      "path": "/svn/BrassRain",
+      "master_url": "https://REPLACE-WITH-BELGRADE-HOST/svn/BrassRain",
+      "master_version": "1.14.1"
+    }
+  ]
+}

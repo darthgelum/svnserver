@@ -1,0 +1,8 @@
+.env
+config/repos.json
+config/master.json
+secrets/*
+!secrets/.gitkeep
+auth/*
+!auth/.gitkeep
+data/

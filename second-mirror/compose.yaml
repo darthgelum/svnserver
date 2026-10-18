@@ -1,0 +1,37 @@
+name: svn-second-mirror
+services:
+  mirror:
+    image: svn-second-mirror:local
+    build: .
+    restart: unless-stopped
+    stop_grace_period: 60s
+    ports:
+      - "${BIND_IP:-127.0.0.1}:${MIRROR_PORT:-18080}:80"
+      - "${BIND_IP:-127.0.0.1}:${LIVE_PORT:-18081}:81"
+    volumes:
+      - ${MIRROR_DATA:?Set MIRROR_DATA}:/data
+      - ${CONFIG_FILE:-./config/repos.json}:/config/repos.json:ro
+      - ${AUTH_DIR:-./auth}:/auth:ro
+    environment:
+      ROLE: mirror
+      MAX_SYNC_AGE_SECONDS: ${MAX_SYNC_AGE_SECONDS:-300}
+      MAX_LAG_REVISIONS: ${MAX_LAG_REVISIONS:-0}
+    healthcheck:
+      test: ["CMD", "python3", "/opt/svnmirror/app.py", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+  sync:
+    image: svn-second-mirror:local
+    build: .
+    command: ["sync-loop"]
+    restart: unless-stopped
+    stop_grace_period: 60s
+    volumes:
+      - ${MIRROR_DATA:?Set MIRROR_DATA}:/data
+      - ${CONFIG_FILE:-./config/repos.json}:/config/repos.json:ro
+      - ${CREDENTIALS_FILE:-./secrets/source.json}:/secrets/source.json:ro
+    environment:
+      SYNC_INTERVAL_SECONDS: ${SYNC_INTERVAL_SECONDS:-30}
+      SYNC_TIMEOUT_SECONDS: ${SYNC_TIMEOUT_SECONDS:-21600}
+      REVPROP_RESCAN_SECONDS: ${REVPROP_RESCAN_SECONDS:-3600}
