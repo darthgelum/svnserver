@@ -24,6 +24,7 @@ try:
                           'source_path': '/svn-mirror-source/' + path.name})
     stage = 'read-svn-version'
     response = {'repositories': repos,
+                'lock_metadata_mode': 'master-skelta-v1',
                 'master_version': subprocess.check_output(['svn', '--version', '--quiet'], text=True).strip()}
     if settings.get('export_auth', False):
         response['auth'] = {}

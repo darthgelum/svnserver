@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && groupadd -g 10001 svnmirror \
     && useradd -u 10001 -g svnmirror -M -s /usr/sbin/nologin svnmirror \
     && usermod -a -G svnmirror www-data \
-    && a2enmod dav dav_svn authz_svn proxy proxy_http ssl cgid headers \
+    && a2enmod dav dav_svn authz_svn proxy proxy_http ssl cgid headers rewrite \
     && a2dissite 000-default \
     && printf 'Listen 80\nListen 81\n' > /etc/apache2/ports.conf \
     && printf 'ServerName localhost\n' > /etc/apache2/conf-available/servername.conf \

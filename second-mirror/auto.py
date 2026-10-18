@@ -73,6 +73,7 @@ def master_locations(cfg, auth):
         DAV svn
         SVNParentPath /repositories
         SVNListParentPath Off
+        SVNAllowBulkUpdates Off
         {auth}
     </Location>
     <Location /svn-mirror-source>
@@ -121,6 +122,8 @@ def discover(app):
     if len(raw) > 16 * 1024 * 1024:
         raise ValueError('Discovery response too large')
     document = json.loads(raw)
+    if document.get('lock_metadata_mode') != 'master-skelta-v1':
+        raise ValueError('Update and recreate Belgrade master-http first: authoritative locks require skelta metadata support')
     version = document['master_version']
     if not re.fullmatch(r'\d+\.\d+\.\d+', version):
         raise ValueError('Invalid discovered master_version')
@@ -141,7 +144,8 @@ def discover(app):
         if item['source_path'] != '/svn-mirror-source/' + name:
             raise ValueError('Invalid replication source path')
         repos.append({'name': name, 'path': path, 'master_url': origin + path,
-                      'source_url': origin + item['source_path'], 'master_version': version})
+                      'source_url': origin + item['source_path'], 'master_version': version,
+                      'lock_metadata_mode': document['lock_metadata_mode']})
     if cfg.get('sync_auth', False):
         auth = document.get('auth')
         if not isinstance(auth, dict) or not all(isinstance(auth.get(n), str) and auth[n].strip() for n in ('htpasswd', 'authz')):

@@ -104,6 +104,14 @@ else: raise AssertionError('Catalog leaked')
                     return
                 time.sleep(.3)
             raise RuntimeError(result.stdout + result.stderr)
+        # An old master must not silently allow bulk file bodies over WAN.
+        call('exec', master, 'bash', '-ec',
+             "cp /opt/svnmirror/discovery.cgi /tmp/discovery.saved; sed -i '/lock_metadata_mode/d' /opt/svnmirror/discovery.cgi")
+        try:
+            incompatible = docker('run', '--rm', *sync_args, IMAGE, 'discover', ok=False)
+            assert incompatible.returncode != 0 and 'Update and recreate Belgrade' in incompatible.stderr
+        finally:
+            call('exec', master, 'cp', '/tmp/discovery.saved', '/opt/svnmirror/discovery.cgi')
         sync()
         wait_repo('Example')
         wait_repo('Second')
@@ -114,6 +122,14 @@ else: raise AssertionError('Catalog leaked')
         assert call('exec', mirror, 'svnlook', 'youngest', '/data/repositories/Example') == '1'
         sync()
         assert svn(mirror, 'mkdir', 'http://127.0.0.1/svn/Example/no', '-m', 'no', user='bob', ok=False).returncode != 0
+        # Auto-discovered repos use the same authoritative lock path. Lock state
+        # must change immediately even while the replication worker is stopped.
+        call('exec', master, 'bash', '-c', 'printf asset > /tmp/asset; svn import /tmp/asset file:///repositories/Second/trunk/asset -m asset')
+        sync()
+        svn(master, 'lock', 'http://master/svn/Second/trunk/asset')
+        assert '<owner>alice</owner>' in svn(mirror, 'info', '--xml', 'http://127.0.0.1/svn/Second/trunk/asset').stdout
+        svn(mirror, 'unlock', 'http://127.0.0.1/svn/Second/trunk/asset')
+        assert '<lock>' not in svn(master, 'info', '--xml', 'http://master/svn/Second/trunk/asset').stdout
         # Create a repository AFTER both servers started. No master/mirror restart.
         call('exec', master, 'bash', '-c',
              'svnadmin create /repositories/Third; svn mkdir file:///repositories/Third/trunk -m initial; chown -R www-data:www-data /repositories/Third')

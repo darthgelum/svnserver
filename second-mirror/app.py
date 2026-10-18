@@ -269,8 +269,10 @@ def render(repos):
             if automatic and not master and not repos:
                 continue
             raise RuntimeError(f'Missing /auth/{filename}')
-    blocks, live = [], []
+    blocks, live, metadata = [], [], []
     for repo in repos:
+        if not master and automatic and repo.get('lock_metadata_mode') != 'master-skelta-v1':
+            raise RuntimeError('Update Belgrade master-http, then run sync discovery before starting the mirror')
         path = Path('/repositories') / repo['name'] if master else repo_path(repo)
         if not (path / 'format').is_file():
             raise RuntimeError(f'{repo["name"]}: initialize the mirror or fix the master repository mount')
@@ -284,10 +286,23 @@ def render(repos):
         blocks.append(f'''<Location "{repo['path']}">
         DAV svn
         SVNPath "{path}"
+        SVNAllowBulkUpdates Off
         {proxy}
         {auth}
     </Location>''')
         if not master:
+            # Lock discovery uses PROPFIND and REPORT (including status/update).
+            # Keep ALL metadata authoritative instead of polling/copying locks.
+            # The master MUST disable bulk updates, so REPORT carries tree and
+            # property metadata only; the client GETs file deltas locally.
+            origin = urlsplit(repo['master_url'])
+            # RewriteRule backrefs are URL-decoded: an asset named "#?.uasset"
+            # would turn into a fragment/query. Take the encoded path from the
+            # original HTTP request line, after matching the validated repo.
+            metadata.append(f'''RewriteCond %{{REQUEST_METHOD}} ^(?:OPTIONS|PROPFIND|REPORT)$
+    RewriteCond %{{THE_REQUEST}} "^[^ ]+ (/[^ ?]*)"
+    RewriteRule "^{re.escape(repo['path'])}(/.*)?$" "{origin.scheme}://{origin.netloc}%1" [P,L,NE]
+    ProxyPassReverse "{repo['path']}" "{repo['master_url']}"''')
             # Same URL path on a different port. All operations, including locks,
             # are authoritative on this port; no local lock replication is claimed.
             live.append(f'''ProxyPass "{repo['path']}" "{repo['master_url']}" nocanon
@@ -306,7 +321,7 @@ Timeout 21600
     <Location /healthz>
         Require all granted
     </Location>'''
-    document = header + '\n<VirtualHost *:80>\n    ' + health + '\n    ' + '\n    '.join(blocks) + '''
+    document = header + '\n<VirtualHost *:80>\n    RewriteEngine On\n    ' + '\n    '.join(metadata) + '\n    ' + health + '\n    ' + '\n    '.join(blocks) + '''
     ErrorLog /proc/self/fd/2
     CustomLog /proc/self/fd/1 combined
 </VirtualHost>

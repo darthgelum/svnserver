@@ -40,7 +40,7 @@ try:
         fixture = '''set -eu
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=Offline-Test-CA -keyout /fixture/ca.key -out /fixture/ca.crt
 openssl req -new -newkey rsa:2048 -nodes -subj /CN=127.0.0.1 -keyout /fixture/server.key -out /fixture/server.csr
-printf 'subjectAltName=IP:127.0.0.1\\nextendedKeyUsage=serverAuth\\n' > /fixture/extensions
+printf 'subjectAltName=IP:127.0.0.1,DNS:https-gateway\\nextendedKeyUsage=serverAuth\\n' > /fixture/extensions
 openssl x509 -req -in /fixture/server.csr -CA /fixture/ca.crt -CAkey /fixture/ca.key -set_serial 1 -days 2 -extfile /fixture/extensions -out /fixture/first.pem
 openssl x509 -req -in /fixture/server.csr -CA /fixture/ca.crt -CAkey /fixture/ca.key -set_serial 2 -days 2 -extfile /fixture/extensions -out /fixture/second.pem
 '''
@@ -86,7 +86,7 @@ run.time.monotonic = lambda: clock() * 120
 run.main()
 ''')
         containers.append(gateway)
-        call('run', '-d', '--name', gateway, '--network', PREFIX,
+        call('run', '-d', '--name', gateway, '--network', PREFIX, '--network-alias', 'https-gateway',
              '-e', 'PUBLIC_IP=127.0.0.1', '-e', 'ACME_EMAIL=offline@example.invalid',
              '-e', 'SSL_CERT_FILE=/fixture/ca.crt', '-e', 'PATH=/fixture/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
              '-e', 'RENEW_INTERVAL_SECONDS=60', '-e', 'ACME_RETRY_SECONDS=60',
@@ -103,11 +103,11 @@ run.main()
         # Trust the fixture CA, while retaining normal certificate/IP checks.
         flags = ['--non-interactive', '--no-auth-cache', '--username', 'alice', '--password', 'test-pass',
                  '--config-option', 'servers:global:ssl-authority-files=/fixture/ca.crt']
-        # Run a normal SVN client in the gateway's network namespace. The URL IP
-        # matches the certificate SAN; the fixture CA is explicitly trusted.
+        # Run a normal SVN client against a DNS SAN, as used by the DSM proxy.
+        # The fixture CA is explicitly trusted; Python also checks the IP SAN.
         client_args = ['run', '--rm', '--network', 'container:' + gateway,
                        '-v', str(root) + ':/fixture:ro', '--entrypoint', 'svn', SVN]
-        url = 'https://127.0.0.1/svn/Example'
+        url = 'https://https-gateway/svn/Example'
         def svn(*args):
             return call(*client_args, *args, *flags)
         assert svn('cat', url + '/trunk/asset') == 'asset'
@@ -117,6 +117,42 @@ run.main()
         svn('lock', url + '/trunk/asset', '-m', 'TLS lock')
         assert 'Lock Token' in svn('info', url + '/trunk/asset')
         svn('unlock', url + '/trunk/asset')
+        # Actual mirror -> verified TLS -> reverse proxy -> master chain.
+        # No certificate verification bypass and no replication during checks.
+        data = PREFIX + '-mirror'
+        call('volume', 'create', data)
+        volumes.append(data)
+        write('repos.json', json.dumps({'repositories': [{'name': 'Example', 'path': '/svn/Example',
+              'master_url': 'https://https-gateway/svn/Example', 'master_version': '1.14.1'}]}))
+        write('source.json', json.dumps({'default': {'username': 'alice', 'password': 'test-pass'}}))
+        trust = 'cp /fixture/ca.crt /usr/local/share/ca-certificates/fixture.crt; update-ca-certificates >/dev/null; exec python3 /opt/svnmirror/app.py '
+        args = ['--network', PREFIX, '-v', data + ':/data', '-v', str(root) + ':/fixture:ro',
+                '-v', str(root / 'auth') + ':/auth:ro',
+                '-v', str(root / 'repos.json') + ':/config/repos.json:ro',
+                '-v', str(root / 'source.json') + ':/secrets/source.json:ro', '--entrypoint', 'bash']
+        call('run', '--rm', *args, SVN, '-ec', trust + 'init')
+        call('run', '--rm', *args, SVN, '-ec', trust + 'sync-once')
+        mirror = PREFIX + '-mirror'
+        containers.append(mirror)
+        call('run', '-d', '--name', mirror, *args, SVN, '-ec', trust + 'serve')
+        for _ in range(40):
+            check = docker('exec', mirror, 'svn', 'info', 'http://127.0.0.1/svn/Example', *flags, ok=False)
+            if check.returncode == 0:
+                break
+            time.sleep(.3)
+        else:
+            raise RuntimeError(check.stdout + check.stderr + docker('logs', mirror).stderr)
+        before = docker('logs', master).stdout
+        call('exec', mirror, 'svn', 'checkout', 'http://127.0.0.1/svn/Example/trunk', '/tmp/wc', *flags)
+        assert '"GET ' not in docker('logs', master).stdout[len(before):]
+        svn('lock', url + '/trunk/asset', '-m', 'direct master lock')
+        assert '<owner>alice</owner>' in call('exec', mirror, 'svn', 'status', '-u', '--xml', '/tmp/wc', *flags)
+        call('exec', mirror, 'svn', 'unlock', 'http://127.0.0.1/svn/Example/trunk/asset', *flags)
+        assert 'Lock Token' not in svn('info', url + '/trunk/asset')
+        call('exec', mirror, 'svn', 'lock', '/tmp/wc/asset', *flags)
+        call('exec', mirror, 'bash', '-c', 'printf changed >> /tmp/wc/asset')
+        call('exec', mirror, 'svn', 'commit', '/tmp/wc', '-m', 'locked commit over TLS', *flags)
+        assert 'Lock Token' not in svn('info', url + '/trunk/asset')
         # Verify retry/renewal happened and nginx serves the replacement cert.
         probe = '''import socket, ssl
 c = ssl.create_default_context()
@@ -135,7 +171,7 @@ else:
     raise AssertionError('HTTP must not expose SVN')
 '''
         call('exec', gateway, 'python3', '-c', probe)
-        print('PASS: HTTP-only bootstrap, ACME failure/retry, issuance, automatic TLS reload, trusted IP TLS, SVN commit/copy/move/lock, HTTP isolation')
+        print('PASS: TLS lifecycle, verified mirror HTTPS upstream, LAN checkout (no master GET), immediate master lock status, local lock/commit/unlock, copy/move and HTTP isolation')
 finally:
     for name in reversed(containers):
         docker('rm', '-f', name, ok=False)
