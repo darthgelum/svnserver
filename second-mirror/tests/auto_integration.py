@@ -132,7 +132,45 @@ else: raise AssertionError('Catalog leaked')
         sync()
         wait_repo('Third', success=False)
         call('exec', mirror, 'test', '-f', '/data/repositories/Third/format')
-        print('PASS: protected discovery, all-repository read-only replication account, empty bootstrap, automatic auth, dynamic repositories, proxied commit, authz revocation, removal preserves data')
+        # Reuse an existing copy IN PLACE, with separate metadata storage.
+        for suffix in ('existing', 'seed-state'):
+            name = PREFIX + '-' + suffix
+            call('volume', 'create', name)
+            volumes.append(name)
+        existing, metadata = volumes[-2:]
+        call('run', '--rm', '--entrypoint', 'bash', '-v', volumes[0] + ':/master:ro',
+             '-v', existing + ':/existing', IMAGE, '-c',
+             'svnadmin hotcopy /master/Example /existing/Example; '
+             'svnadmin hotcopy /master/Second /existing/Second; '
+             'chown -R www-data:www-data /existing')
+        adopt_args = ['--network', PREFIX, '-e', 'REQUIRE_SEED_ADOPTION=1',
+                      '-v', metadata + ':/data', '-v', existing + ':/data/repositories',
+                      '-v', str(root / 'mirror.json') + ':/config/repos.json:ro',
+                      '-v', str(root / 'source.json') + ':/secrets/source.json:ro']
+        assert docker('run', '--rm', *adopt_args, IMAGE, 'sync-once', ok=False).returncode != 0
+        call('run', '--rm', *adopt_args, IMAGE, 'discover')
+        # Advance the source AFTER the local copy was taken.
+        svn(master, 'mkdir', 'http://master/svn/Example/new-after-copy', '-m', 'delta')
+        before = call('run', '--rm', '--entrypoint', 'svnlook', '-v', existing + ':/existing',
+                      IMAGE, 'youngest', '/existing/Example')
+        call('run', '--rm', *adopt_args, IMAGE, 'adopt-all')
+        after = call('run', '--rm', '--entrypoint', 'svnlook', '-v', existing + ':/existing',
+                     IMAGE, 'youngest', '/existing/Example')
+        assert before == after == '2'  # Adoption never downloads repository history.
+        call('run', '--rm', *adopt_args, IMAGE, 'sync-once')
+        after = call('run', '--rm', '--entrypoint', 'svnlook', '-v', existing + ':/existing',
+                     IMAGE, 'youngest', '/existing/Example')
+        assert after == '3'  # Only the missing revision was copied.
+        seed_mirror = PREFIX + '-seed-mirror'
+        containers.append(seed_mirror)
+        call('run', '-d', '--name', seed_mirror, '--network', PREFIX,
+             '-v', metadata + ':/data', '-v', existing + ':/data/repositories',
+             '-v', str(root / 'mirror.json') + ':/config/repos.json:ro', IMAGE)
+        wait_ready(seed_mirror)
+        svn(seed_mirror, 'mkdir', 'http://127.0.0.1/svn/Example/from-existing', '-m', 'write through reused copy')
+        assert call('exec', master, 'svnlook', 'youngest', '/repositories/Example') == '4'
+        assert call('exec', seed_mirror, 'svnlook', 'youngest', '/data/repositories/Example') == '3'
+        print('PASS: protected discovery, read-only replication, automatic repositories/auth, proxied commit, authz revocation, preserved data, existing-copy adoption without history download, delta-only sync')
 finally:
     for name in reversed(containers):
         docker('rm', '-f', name, ok=False)

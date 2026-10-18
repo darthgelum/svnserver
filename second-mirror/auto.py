@@ -179,7 +179,67 @@ def discovery_health():
         return 1
 
 
+def adoption_identity():
+    return read_json(DATA / 'repositories' / '.svn-mirror-adoption.json', {})
+
+
+def adopt_all(app, repos):
+    """Explicit, offline conversion of a local seed. No repository data transfer."""
+    if os.getenv('ROLE', 'mirror') == 'master' or os.geteuid() != 0:
+        raise RuntimeError('adopt-all must run as root in the Yerevan sync container')
+    if not repos:
+        raise RuntimeError('Run discover first; it downloads only the catalog and access rules')
+    existing = [repo for repo in repos if app.repo_path(repo).exists()]
+    if not existing:
+        raise RuntimeError('No matching local repositories. Check EXISTING_REPOS; refusing an empty seed')
+    pending = []
+    # Validate ALL selected copies before changing ownership, hooks or svnsync metadata.
+    for repo in existing:
+        path = app.repo_path(repo)
+        if path.is_symlink() or not (path / 'format').is_file() or not (path / 'db').is_dir():
+            raise RuntimeError(repo['name'] + ': not a regular repository directory')
+        source_uuid, head = app.source_info(repo)
+        if app.run(['svnlook', 'uuid', str(path)]) != source_uuid:
+            raise RuntimeError(repo['name'] + ': UUID differs from master; refusing adoption')
+        if int(app.run(['svnlook', 'youngest', str(path)])) > head:
+            raise RuntimeError(repo['name'] + ': local history is ahead of master; refusing adoption')
+        initialized = app.prop(repo, 'svn:sync-from-url')
+        if initialized and initialized != repo.get('source_url', repo['master_url']):
+            raise RuntimeError(repo['name'] + ': already mirrors a different source')
+        for folder, dirs, files in os.walk(path, followlinks=False):
+            if any((Path(folder) / name).is_symlink() for name in dirs + files):
+                raise RuntimeError(repo['name'] + ': seed contains symlinks; inspect before adoption')
+        print(repo['name'] + ': verifying local history (no history download)', flush=True)
+        app.run(['svnadmin', 'verify', str(path)])
+        pending.append(repo)
+    for repo in pending:
+        path = app.repo_path(repo)
+        # Only the explicitly selected Yerevan copies; never the master or a parent tree.
+        for folder, dirs, files in os.walk(path, followlinks=False):
+            directory = Path(folder)
+            os.chown(directory, app.UID, app.UID)
+            directory.chmod((directory.stat().st_mode & 0o777) | 0o2070)
+            for name in files:
+                child = directory / name
+                os.chown(child, app.UID, app.UID)
+                child.chmod((child.stat().st_mode & 0o777) | 0o060)
+    app.drop_worker_identity()
+    for repo in pending:
+        app.initialize(repo, seed=True, verified_seed=True)
+        print(repo['name'] + ': adopted at r' + app.run(['svnlook', 'youngest', str(app.repo_path(repo))]), flush=True)
+    import uuid
+    identity = {'id': str(uuid.uuid4())}
+    atomic_json(DATA / 'repositories' / '.svn-mirror-adoption.json', identity)
+    atomic_json(DATA / 'status' / 'adoption.json', identity)
+    print(f'Adopted {len(pending)} local repositories; history was not downloaded. Start sync to fetch newer revisions.', flush=True)
+    return 0
+
+
 def sync(app, command):
+    if os.getenv('REQUIRE_SEED_ADOPTION') == '1':
+        marker = read_json(DATA / 'status' / 'adoption.json', {})
+        if not marker or marker != adoption_identity():
+            raise RuntimeError('Existing-copy mode requires discover then adopt-all before synchronization')
     while True:
         success = True
         try:
@@ -268,12 +328,23 @@ def configure_mirror():
     data = input('Absolute NAS data path [/volume1/docker/svn-second-mirror-data]: ').strip() or '/volume1/docker/svn-second-mirror-data'
     if not data.startswith('/') or not re.fullmatch(r'/[A-Za-z0-9_./-]+', data) or '..' in Path(data).parts:
         raise ValueError('Use an absolute data path without spaces or ..')
+    existing = input('Existing repository parent path (blank ONLY for a new empty mirror): ').strip()
+    if existing and (not existing.startswith('/') or not re.fullmatch(r'/[A-Za-z0-9_./-]+', existing)
+                     or '..' in Path(existing).parts):
+        raise ValueError('Use an absolute existing repository parent path without spaces or ..')
     for name in ('config', 'secrets'):
         (root / name).mkdir(exist_ok=True)
     (root / 'secrets').chmod(0o700)
-    outputs[0].write_text(f'MIRROR_DATA={data}\nBIND_IP={bind}\nMIRROR_PORT=18080\nLIVE_PORT=18081\nSYNC_INTERVAL_SECONDS=30\nMAX_SYNC_AGE_SECONDS=1800\nREVPROP_RESCAN_SECONDS=86400\n')
+    environment = f'MIRROR_DATA={data}\nBIND_IP={bind}\nMIRROR_PORT=18080\nLIVE_PORT=18081\nSYNC_INTERVAL_SECONDS=30\nMAX_SYNC_AGE_SECONDS=1800\nREVPROP_RESCAN_SECONDS=86400\n'
+    if existing:
+        environment += 'EXISTING_REPOS=' + existing + '\n'
+    outputs[0].write_text(environment)
     outputs[0].chmod(0o600)
     outputs[1].write_text(json.dumps({'auto_discover': True, 'master_base_url': origin, 'sync_auth': True}, indent=2) + '\n')
     outputs[2].write_text(json.dumps({'default': {'username': username, 'password': password}}, indent=2) + '\n')
     outputs[2].chmod(0o600)
-    print('Configuration saved. Start: docker compose -f compose.auto.yaml up -d', flush=True)
+    if existing:
+        print('Configuration saved for EXISTING COPY. Use both compose.auto.yaml and compose.existing.yaml.', flush=True)
+        print('Before starting services: run sync discover, then sync adopt-all. No history is downloaded by these commands.', flush=True)
+    else:
+        print('Configuration saved. Start: docker compose -f compose.auto.yaml up -d', flush=True)

@@ -80,7 +80,7 @@ def local_url(repo):
     return repo_path(repo).as_uri()
 
 
-def prepare_worker():
+def prepare_worker(drop=True):
     global SECRETS
     # Only the worker mounts credentials. Apache never sees the source password.
     SECRETS = json.loads(Path('/secrets/source.json').read_text())
@@ -90,17 +90,24 @@ def prepare_worker():
         if os.geteuid() == 0:
             os.chown(folder, UID, UID)
             folder.chmod(0o2770)
+    if drop:
+        drop_worker_identity()
+    os.umask(0o007)
+
+
+def drop_worker_identity():
     if os.geteuid() == 0:
         os.setgroups([UID])
         os.setgid(UID)
         os.setuid(UID)
-    os.umask(0o007)
 
 
 @contextlib.contextmanager
 def worker_lock():
     # Every worker/admin operation uses the same OS lock, including --run containers.
     with (DATA / 'status' / 'worker.lock').open('a') as handle:
+        if os.geteuid() == 0:
+            os.fchown(handle.fileno(), UID, UID)
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -141,7 +148,7 @@ def guards(repo):
         target.chmod(0o750)
 
 
-def initialize(repo, seed=False):
+def initialize(repo, seed=False, verified_seed=False):
     path = repo_path(repo)
     source_uuid, _ = source_info(repo)
     if not path.exists():
@@ -162,13 +169,19 @@ def initialize(repo, seed=False):
     if seed:
         if run(['svnlook', 'uuid', str(path)]) != source_uuid:
             raise RuntimeError('Seed UUID differs from source UUID')
-        run(['svnadmin', 'verify', str(path)])
+        if not verified_seed:
+            run(['svnadmin', 'verify', str(path)])
         # A hotcopy brings hooks from the master. NEVER run them on a mirror.
         archive = path / 'seed-hooks.saved'
         if archive.exists():
-            raise RuntimeError('seed-hooks.saved already exists; inspect previous seed attempt')
-        (path / 'hooks').rename(archive)
-        (path / 'hooks').mkdir()
+            guard = Path('/opt/svnmirror/write-guard').read_bytes()
+            hooks = list((path / 'hooks').iterdir())
+            if any(h.name not in ('pre-commit', 'pre-revprop-change', 'pre-lock', 'pre-unlock')
+                   or not h.is_file() or h.read_bytes() != guard for h in hooks):
+                raise RuntimeError('Seed adoption previously interrupted; inspect hooks before retrying')
+        else:
+            (path / 'hooks').rename(archive)
+            (path / 'hooks').mkdir()
     guards(repo)
     run(['svnadmin', 'setuuid', str(path), source_uuid])
     args = ['svnsync', 'initialize', local_url(repo), repo.get('source_url', repo['master_url']), *source_auth(repo, sync=True)]
@@ -324,8 +337,16 @@ def main():
         return 0
     if command in ('status', 'health'):
         return max(status(repos, check=command == 'health'), auto.discovery_health() if automatic else 0)
-    prepare_worker()
+    prepare_worker(drop=command != 'adopt-all')
     with worker_lock():
+        if automatic and command == 'discover':
+            repos = auto.discover(sys.modules[__name__])
+            print('Discovered repositories (no history downloaded):', flush=True)
+            for repo in repos:
+                print(repo['name'], flush=True)
+            return 0
+        if automatic and command == 'adopt-all':
+            return auto.adopt_all(sys.modules[__name__], repos)
         if automatic and command in ('init', 'sync-once', 'sync-loop', 'copy-revprops'):
             return auto.sync(sys.modules[__name__], command)
         if command in ('init', 'seed'):

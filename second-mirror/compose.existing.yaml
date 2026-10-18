@@ -1,0 +1,18 @@
+# Overlay for the EXISTING Yerevan copy. Always use together with compose.auto.yaml.
+services:
+  mirror:
+    volumes:
+      - type: bind
+        source: ${EXISTING_REPOS:?Set EXISTING_REPOS to the directory containing repository folders}
+        target: /data/repositories
+        bind:
+          create_host_path: false
+  sync:
+    environment:
+      REQUIRE_SEED_ADOPTION: "1"
+    volumes:
+      - type: bind
+        source: ${EXISTING_REPOS:?Set EXISTING_REPOS to the directory containing repository folders}
+        target: /data/repositories
+        bind:
+          create_host_path: false
