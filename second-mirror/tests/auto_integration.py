@@ -138,6 +138,10 @@ else: raise AssertionError('Catalog leaked')
             call('volume', 'create', name)
             volumes.append(name)
         existing, metadata = volumes[-2:]
+        # Reproduce Synology bind-root 0700 and an old root-owned 0600 lock.
+        call('run', '--rm', '--entrypoint', 'bash', '-v', metadata + ':/data', IMAGE, '-c',
+             'mkdir -p /data/status; touch /data/status/worker.lock; '
+             'chmod 700 /data; chmod 600 /data/status/worker.lock')
         call('run', '--rm', '--entrypoint', 'bash', '-v', volumes[0] + ':/master:ro',
              '-v', existing + ':/existing', IMAGE, '-c',
              'svnadmin hotcopy /master/Example /existing/Example; '

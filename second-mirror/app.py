@@ -85,7 +85,11 @@ def prepare_worker(drop=True):
     # Only the worker mounts credentials. Apache never sees the source password.
     SECRETS = json.loads(Path('/secrets/source.json').read_text())
     DATA.mkdir(parents=True, exist_ok=True)
-    for folder in (DATA / 'repositories', DATA / 'status', DATA / 'svn-config', DATA / 'auth'):
+    if any((DATA / name).exists() for name in ('format', 'svnrepo', 'usvn')):
+        raise RuntimeError('MIRROR_DATA must be a dedicated mirror-state directory, not a repository or the old volume folder')
+    # Docker/Synology may create the bind-mount root as root:root 0700. Owning
+    # its children is insufficient: the worker also needs to traverse /data.
+    for folder in (DATA, DATA / 'repositories', DATA / 'status', DATA / 'svn-config', DATA / 'auth'):
         folder.mkdir(parents=True, exist_ok=True)
         if os.geteuid() == 0:
             os.chown(folder, UID, UID)
@@ -108,6 +112,7 @@ def worker_lock():
     with (DATA / 'status' / 'worker.lock').open('a') as handle:
         if os.geteuid() == 0:
             os.fchown(handle.fileno(), UID, UID)
+            os.fchmod(handle.fileno(), 0o660)
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -337,8 +342,12 @@ def main():
         return 0
     if command in ('status', 'health'):
         return max(status(repos, check=command == 'health'), auto.discovery_health() if automatic else 0)
-    prepare_worker(drop=command != 'adopt-all')
+    # Acquire and normalize an existing root-owned lock BEFORE dropping UID.
+    # Never unlink it: another container might hold a flock on the same inode.
+    prepare_worker(drop=False)
     with worker_lock():
+        if command != 'adopt-all':
+            drop_worker_identity()
         if automatic and command == 'discover':
             repos = auto.discover(sys.modules[__name__])
             print('Discovered repositories (no history downloaded):', flush=True)
