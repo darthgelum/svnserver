@@ -1,0 +1,5 @@
+{
+  "auto_discover": true,
+  "master_base_url": "https://REPLACE-WITH-MASTER-HOST:18443",
+  "sync_auth": true
+}

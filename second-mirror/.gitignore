@@ -1,6 +1,7 @@
 .env
 config/repos.json
 config/master.json
+config/master.before-auto.json
 secrets/*
 !secrets/.gitkeep
 auth/*

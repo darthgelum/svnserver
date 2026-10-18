@@ -2,3 +2,5 @@
 !Dockerfile
 !app.py
 !write-guard
+!auto.py
+!discovery.cgi

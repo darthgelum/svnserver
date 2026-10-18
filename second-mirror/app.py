@@ -13,6 +13,7 @@ import time
 from urllib.parse import urlsplit
 import urllib.request
 import xml.etree.ElementTree as ET
+import auto
 
 DATA = Path('/data')
 UID = 10001
@@ -38,7 +39,10 @@ def run(args):
 
 
 def config():
-    repos = json.loads(Path('/config/repos.json').read_text())['repositories']
+    settings = auto.settings()
+    if settings.get('auto_discover'):
+        return auto.repositories(settings)
+    repos = settings['repositories']
     if not isinstance(repos, list) or not repos:
         raise ValueError('repositories must be a non-empty list')
     names, paths = set(), set()
@@ -61,6 +65,10 @@ def config():
                 raise ValueError('master_url must be HTTP(S), have the SAME path, no credentials/query/trailing slash')
             if not re.fullmatch(r'\d+\.\d+\.\d+', repo['master_version']):
                 raise ValueError('Set the actual master_version (svn --version --quiet)')
+            if repo.get('source_url'):
+                source = urlsplit(repo['source_url'])
+                if source.scheme != url.scheme or source.netloc != url.netloc or source.query or source.fragment:
+                    raise ValueError('source_url must have the same origin as master_url')
     return repos
 
 
@@ -77,7 +85,7 @@ def prepare_worker():
     # Only the worker mounts credentials. Apache never sees the source password.
     SECRETS = json.loads(Path('/secrets/source.json').read_text())
     DATA.mkdir(parents=True, exist_ok=True)
-    for folder in (DATA / 'repositories', DATA / 'status', DATA / 'svn-config'):
+    for folder in (DATA / 'repositories', DATA / 'status', DATA / 'svn-config', DATA / 'auth'):
         folder.mkdir(parents=True, exist_ok=True)
         if os.geteuid() == 0:
             os.chown(folder, UID, UID)
@@ -101,16 +109,19 @@ def worker_lock():
 
 
 def source_auth(repo, sync=False):
-    auth = SECRETS[repo['name']]
+    auth = SECRETS.get(repo['name'], SECRETS.get('default'))
+    if not auth:
+        raise ValueError('Missing source credentials for ' + repo['name'])
     return ['--non-interactive', '--no-auth-cache', '--config-dir', str(DATA / 'svn-config'),
             '--source-username' if sync else '--username', auth['username'],
             '--source-password' if sync else '--password', auth['password']]
 
 
 def source_info(repo):
-    doc = ET.fromstring(run(['svn', 'info', '--xml', repo['master_url'], *source_auth(repo)]))
+    source_url = repo.get('source_url', repo['master_url'])
+    doc = ET.fromstring(run(['svn', 'info', '--xml', source_url, *source_auth(repo)]))
     entry = doc.find('entry')
-    if entry.findtext('repository/root') != repo['master_url']:
+    if entry.findtext('repository/root') != source_url:
         raise RuntimeError('master_url must point to a repository ROOT, not trunk or a subdirectory')
     return entry.findtext('repository/uuid'), int(entry.attrib['revision'])
 
@@ -139,7 +150,7 @@ def initialize(repo, seed=False):
         run(['svnadmin', 'create', str(path)])
     initialized = prop(repo, 'svn:sync-from-url')
     if initialized:
-        if initialized != repo['master_url'] or prop(repo, 'svn:sync-from-uuid') != source_uuid:
+        if initialized != repo.get('source_url', repo['master_url']) or prop(repo, 'svn:sync-from-uuid') != source_uuid:
             raise RuntimeError('Existing mirror belongs to a different source; create a NEW data directory')
         if run(['svnlook', 'uuid', str(path)]) != source_uuid:
             raise RuntimeError('Mirror UUID does not match its source')
@@ -160,7 +171,7 @@ def initialize(repo, seed=False):
         (path / 'hooks').mkdir()
     guards(repo)
     run(['svnadmin', 'setuuid', str(path), source_uuid])
-    args = ['svnsync', 'initialize', local_url(repo), repo['master_url'], *source_auth(repo, sync=True)]
+    args = ['svnsync', 'initialize', local_url(repo), repo.get('source_url', repo['master_url']), *source_auth(repo, sync=True)]
     if seed:
         args.append('--allow-non-empty')
     run(args)
@@ -169,7 +180,7 @@ def initialize(repo, seed=False):
 def sync_one(repo, full_props=False):
     name = repo['name']
     try:
-        if prop(repo, 'svn:sync-from-url') != repo['master_url']:
+        if prop(repo, 'svn:sync-from-url') != repo.get('source_url', repo['master_url']):
             raise RuntimeError('Mirror not initialized for this source; run init first')
         source_uuid, head = source_info(repo)
         if run(['svnlook', 'uuid', str(repo_path(repo))]) != source_uuid:
@@ -225,15 +236,20 @@ def status(repos, check=False):
 
 def render(repos):
     master = os.getenv('ROLE', 'mirror') == 'master'
+    settings = auto.settings()
+    automatic = settings.get('auto_discover', False)
+    auth_root = '/data/auth/current' if automatic and not master and settings.get('sync_auth') else '/auth'
     auth = '''
         AuthType Basic
         AuthName "Subversion"
-        AuthUserFile /auth/htpasswd
-        AuthzSVNAccessFile /auth/authz
+        AuthUserFile AUTH_ROOT/htpasswd
+        AuthzSVNAccessFile AUTH_ROOT/authz
         Require valid-user
-'''
+'''.replace('AUTH_ROOT', auth_root)
     for filename in ('htpasswd', 'authz'):
-        if not (Path('/auth') / filename).is_file():
+        if not (Path(auth_root) / filename).is_file():
+            if automatic and not master and not repos:
+                continue
             raise RuntimeError(f'Missing /auth/{filename}')
     blocks, live = [], []
     for repo in repos:
@@ -241,7 +257,7 @@ def render(repos):
         if not (path / 'format').is_file():
             raise RuntimeError(f'{repo["name"]}: initialize the mirror or fix the master repository mount')
         if not master:
-            if prop(repo, 'svn:sync-from-url') != repo['master_url']:
+            if prop(repo, 'svn:sync-from-url') != repo.get('source_url', repo['master_url']):
                 raise RuntimeError('Mirror source changed or not initialized')
             if prop(repo, 'svn:sync-from-uuid') != run(['svnlook', 'uuid', str(path)]):
                 raise RuntimeError('Mirror UUID mismatch')
@@ -258,6 +274,8 @@ def render(repos):
             # are authoritative on this port; no local lock replication is claimed.
             live.append(f'''ProxyPass "{repo['path']}" "{repo['master_url']}" nocanon
     ProxyPassReverse "{repo['path']}" "{repo['master_url']}"''')
+    if master and automatic:
+        blocks = [auto.master_locations(settings, auth)]
     header = '''ProxyRequests Off
 SSLProxyEngine On
 SSLProxyVerify require
@@ -291,16 +309,25 @@ Timeout 21600
 
 def main():
     command = sys.argv[1] if len(sys.argv) > 1 else 'serve'
+    if command == 'configure-mirror':
+        return auto.configure_mirror()
+    automatic = auto.settings().get('auto_discover', False)
     repos = config()
     if command in ('serve', 'render'):
+        if automatic and os.getenv('ROLE', 'mirror') != 'master':
+            repos = auto.published()
         render(repos)
         if command == 'serve':
+            if automatic and os.getenv('ROLE', 'mirror') != 'master':
+                return auto.serve(sys.modules[__name__], repos)
             os.execvp('apache2ctl', ['apache2ctl', '-D', 'FOREGROUND'])
         return 0
     if command in ('status', 'health'):
-        return status(repos, check=command == 'health')
+        return max(status(repos, check=command == 'health'), auto.discovery_health() if automatic else 0)
     prepare_worker()
     with worker_lock():
+        if automatic and command in ('init', 'sync-once', 'sync-loop', 'copy-revprops'):
+            return auto.sync(sys.modules[__name__], command)
         if command in ('init', 'seed'):
             if command == 'seed':
                 if len(sys.argv) != 3:

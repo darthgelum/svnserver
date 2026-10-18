@@ -1,0 +1,6 @@
+{
+  "auto_discover": true,
+  "public_prefix": "/svn",
+  "discovery_user": "svnmirror",
+  "export_auth": true
+}
