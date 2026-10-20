@@ -1,4 +1,4 @@
-# Overlay: docker compose -f compose.belgrade.yaml -f compose.https.yaml up -d
+# Overlay: docker compose -f compose.master.yaml -f compose.https.yaml up -d
 services:
   https:
     image: svn-second-mirror-tls:local
@@ -17,7 +17,7 @@ services:
       RENEW_INTERVAL_SECONDS: ${RENEW_INTERVAL_SECONDS:-43200}
       ACME_RETRY_SECONDS: ${ACME_RETRY_SECONDS:-900}
     volumes:
-      - ${TLS_DATA:?Set TLS_DATA outside Drive ShareSync}:/etc/letsencrypt
+      - ${TLS_DATA:?Set TLS_DATA to a dedicated certificate directory}:/etc/letsencrypt
     healthcheck:
       test: ["CMD", "python3", "/app/run.py", "health"]
       interval: 5m

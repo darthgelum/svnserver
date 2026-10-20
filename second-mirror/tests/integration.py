@@ -161,7 +161,7 @@ htpasswd -b /fixture/auth/htpasswd reader test-pass
         before = docker('logs', master_name).stdout
         svn('update', '/tmp/bob', user='bob')
         assert '"GET ' not in docker('logs', master_name).stdout[len(before):]
-        # Direct Belgrade locks and force-steals must also be visible locally.
+        # Direct master locks and force-steals must also be visible locally.
         svn('lock', 'http://master/svn/Example/trunk/asset.uasset', user='bob')
         assert '<owner>bob</owner>' in svn('status', '-u', '--xml', '/tmp/alice').stdout
         svn('unlock', 'http://master/svn/Example/trunk/asset.uasset', user='bob')

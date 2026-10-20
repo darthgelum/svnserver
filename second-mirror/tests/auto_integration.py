@@ -109,7 +109,7 @@ else: raise AssertionError('Catalog leaked')
              "cp /opt/svnmirror/discovery.cgi /tmp/discovery.saved; sed -i '/lock_metadata_mode/d' /opt/svnmirror/discovery.cgi")
         try:
             incompatible = docker('run', '--rm', *sync_args, IMAGE, 'discover', ok=False)
-            assert incompatible.returncode != 0 and 'Update and recreate Belgrade' in incompatible.stderr
+            assert incompatible.returncode != 0 and 'Update and recreate master-http' in incompatible.stderr
         finally:
             call('exec', master, 'cp', '/tmp/discovery.saved', '/opt/svnmirror/discovery.cgi')
         sync()

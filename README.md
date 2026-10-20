@@ -1,286 +1,236 @@
-# Docker Subversion Server with USVN Web GUI and svn:// protocol
+# SVN Server with USVN for Docker and Synology
 
-This Docker container provides a complete SVN solution with **USVN** - a powerful web-based GUI for managing Subversion repositories, users, groups, and permissions.
+A self-hosted Subversion server with a web administration panel, persistent storage,
+and an optional local mirror for remote teams.
 
-**Key Features:**
-- 🌐 **USVN Web Interface** - Manage everything through a user-friendly web GUI
-- 🔌 **svn:// Protocol** - Direct svnserve access for fast operations
-- 👥 **Centralized User Management** - Create and manage users/groups from one place
-- 📦 **Repository Management** - Create, configure, and manage all repositories
-- 🔐 **Permission Control** - Fine-grained access control per repository
-- 🚀 **HTTP/HTTPS Access** - Optional WebDAV access to repositories
+[USVN](https://github.com/usvn/usvn) manages repositories, users, groups, and access
+rules. The main container serves `svn://`; the optional Apache services add HTTP(S)
+access and automatic replication to another Docker host.
 
-This Docker container is intended to run on **Synology DSM 7.x**, as a replacement for the SVN server package (dropped by Synology). However, it can be used on other servers as well.
+Repository: [darthgelum/svnserver](https://github.com/darthgelum/svnserver).
 
+## Deployment options
 
----
+| Deployment | Components |
+|---|---|
+| One SVN server with a web panel | Root `docker-compose.yaml` |
+| HTTP(S) access to the same repositories | Add `second-mirror/compose.master.yaml` and a TLS reverse proxy |
+| Remote team downloading assets over its LAN | Add a mirror host using `second-mirror/compose.auto.yaml` |
+| Mirror bootstrapped from an existing repository copy | Add `second-mirror/compose.existing.yaml` during setup and operation |
 
-- [Docker Subversion Server with USVN Web GUI and svn:// protocol](#docker-subversion-server-with-usvn-web-gui-and-svn-protocol)
-  - [What is USVN?](#what-is-usvn)
-  - [Quick start for Synology DSM 7.x users](#quick-start-for-synology-dsm-7x-users)
-    - [Preconditions](#preconditions)
-    - [Build and Run the container](#build-and-run-the-container)
-    - [Access USVN Web Interface](#access-usvn-web-interface)
-    - [Initial USVN Setup](#initial-usvn-setup)
-    - [Create Users and Groups](#create-users-and-groups)
-    - [Create and Manage Repositories](#create-and-manage-repositories)
-    - [SVN checkout on client](#svn-checkout-on-client)
-    - [SVN copy existing repository](#svn-copy-existing-repository)
-  - [Docker configurations](#docker-configurations)
-    - [Volumes](#volumes)
-    - [Ports](#ports)
-    - [Environment Variables](#environment-variables)
-  - [Image Components](#image-components)
-    - [Ubuntu 22.04](#ubuntu-2204)
-    - [Tini-Init process](#tini-init-process)
-    - [Entrypoint-Script](#entrypoint-script)
-    - [Apache and USVN](#apache-and-usvn)
-    - [SVN server](#svn-server)
-  - [Docker build (force cache invalidation)](#docker-build-force-cache-invalidation)
-  - [Links](#links)
+The main server remains the only place where user commits and locks are created.
+The mirror serves file contents locally and forwards metadata and write operations
+to the main server, so clients see authoritative file locks.
 
----
+## Requirements
 
-## What is USVN?
+- Docker Engine and Docker Compose; on supported Synology models, Container Manager
+  or the older Docker package.
+- Git for obtaining the source, or an extracted checkout of this repository.
+- Local persistent storage writable by the containers.
+- For a remote mirror: authenticated HTTPS connectivity to the main HTTP endpoint.
 
-**USVN (User-friendly SVN)** is a web-based administration tool for Subversion that provides:
+Examples use `docker compose` on a Linux shell. Add `sudo` where required by your
+Docker installation. The automatic mirror Compose files also support standalone
+`docker-compose` v1. The master and static mirror Compose files require Compose v2.
+Builds and integration tests have been exercised on Linux amd64. Check binary/image
+architecture compatibility before deploying on a different NAS architecture.
 
-- **Web Interface**: Intuitive GUI accessible from any browser
-- **User Management**: Create, edit, and delete users with passwords
-- **Group Management**: Organize users into groups for easier permission management
-- **Repository Management**: Create and configure SVN repositories through the web
-- **Permission Control**: Set read/write permissions per user/group per repository
-- **Multi-Protocol Access**: Supports both svn:// protocol and HTTP/WebDAV access
-- **Centralized Administration**: Manage all repositories and users from one place
+## Quick start: SVN and web administration
 
-USVN eliminates the need to manually edit `passwd`, `authz`, and `svnserve.conf` files!
+Choose any suitable directory on your host. On Synology this is normally a shared
+folder on a local volume; no particular shared-folder or volume name is required.
 
----
-
-## Quick start for Synology DSM 7.x users
-
-Quick start instructions for users not interested in details.
-
-### Preconditions
-
-Following is assumed:
-
-- You run Synology DSM 7.x on your NAS (can be tested with 6.2 before update)
-- Docker package is installed
-- SVN repos are stored in `/volume1/svn/`
-- Optional: Git server package is installed (for cloning from github)
-
-### Build and Run the container
-
-To run the USVN server, first ssh into your NAS and execute:
-
-```bash
-cd /volume1/svn/
-git clone https://github.com/MarkusH1975/svnserver.svn.mh.git
-cd svnserver.svn.mh/
-# Clone USVN if not already present
-git clone https://github.com/usvn/usvn.git
-sudo ./start.sh
+```sh
+git clone https://github.com/darthgelum/svnserver.git
+cd svnserver
+mkdir -p volume/svnrepo volume/usvn/config
 ```
 
-### Access USVN Web Interface
+USVN source is included under `usvn/src`; no additional USVN clone is needed.
 
-Once the container is running, open your web browser and navigate to:
+### Persist the USVN installation configuration
 
-```
-http://localhost:8080/usvn/
-```
+The main Compose file mounts repository and USVN data directories. The application
+also reads its installation configuration from `/var/www/html/usvn/config` inside
+the container. For a **new installation**, create `compose.local.yaml` to persist it:
 
-Or replace `localhost` with your server's IP address: `http://your-server-ip:8080/usvn/`
-
-### Initial USVN Setup
-
-On first access, USVN will guide you through the initial setup:
-
-1. **Language Selection**: Choose your preferred language
-2. **Database Configuration**: USVN uses SQLite by default (no configuration needed)
-3. **SVN Configuration**:
-   - SVN binary path: `/usr/bin/svn`
-   - SVN repositories path: `/volume/svnrepo`
-4. **Admin Account**: Create the administrator account
-   - Username: admin (or your choice)
-   - Password: (set a strong password)
-   - Email: your email address
-
-5. Click "Install" to complete the setup
-
-### Create Users and Groups
-
-After installation, log in with your admin account:
-
-1. **Create Users**:
-   - Go to `Users` → `Add User`
-   - Enter username, password, and email
-   - Click `Create`
-
-2. **Create Groups**:
-   - Go to `Groups` → `Add Group`
-   - Enter group name and description
-   - Add users to the group
-   - Click `Create`
-
-### Create and Manage Repositories
-
-Create new SVN repositories through the USVN web interface:
-
-1. Go to `Repositories` → `Create Repository`
-2. Enter repository name (e.g., `myProject`)
-3. Click `Create`
-4. Set permissions:
-   - Go to `Repositories` → Select your repository
-   - Click `Permissions`
-   - Assign read/write permissions to users or groups
-   - Click `Save`
-
-The repository is now accessible via:
-- **svn:// protocol**: `svn://your-server-ip/myProject`
-- **HTTP protocol**: `http://your-server-ip:8080/svn/myProject`
-
-### SVN checkout on client
-
-Now you can checkout your repository on the client:
-
-```bash
-# Via svn:// protocol (faster)
-svn co --username youruser svn://serverip/myProject/
-
-# Or via HTTP
-svn co --username youruser http://serverip:8080/svn/myProject/
+```yaml
+services:
+  usvn:
+    volumes:
+      - ./volume/usvn/config:/var/www/html/usvn/config
 ```
 
-### SVN copy existing repository
+Then build and start:
 
-**Create a Backup!** If you have existing SVN repositories, you can import them into USVN:
-
-```bash
-# Copy your existing repository
-sudo cp -Rv /volume1/svn/myRepo1 /volume1/svn/svnserver.svn.mh/volume/svnrepo/
-sudo chmod 777 -Rv /volume1/svn/svnserver.svn.mh/volume/svnrepo/myRepo1
-
-# Import into USVN
-# Go to USVN web interface → Repositories → Import existing repository
-# Select the repository folder and follow the wizard
+```sh
+docker compose -f docker-compose.yaml -f compose.local.yaml up -d --build
 ```
 
-After import, configure permissions through the USVN web interface.
+For an **existing installation**, copy the current application config directory to
+persistent storage before adding this mount. Mounting an empty directory over an
+installed config hides the existing files. Back up the database and configuration
+before rebuilding or recreating an existing server.
 
----
+Open `http://HOST:8080/usvn/` and complete the USVN installer. Use container paths:
 
-## Docker configurations
+| Setting | Value |
+|---|---|
+| SVN storage root | `/volume/svnrepo` |
+| Actual repository directories | `/volume/svnrepo/svn/REPOSITORY` |
+| HTTP password file | `/volume/usvn/htpasswd` |
+| Access rules | `/volume/usvn/authz` |
+| SQLite database, if selected | A file under `/volume/usvn/`, such as `/volume/usvn/usvn.sqlite` |
+| Repository URL for the initial svnserve setup | `svn://HOST/` |
 
-### Volumes
+Create the administrator account, then add users/groups and a test repository.
+Set its access permissions in USVN. Test with a normal user:
 
-| Mountpoint | Container Folder | Description |
-| - | - | - |
-| `./volume/svnrepo/` | `/volume/svnrepo/` | Folder for SVN repositories. |
-| `./volume/usvn/` | `/volume/usvn/` | USVN data directory (database, cache, files). |
-| `./usvn/src/` | `/var/www/html/usvn/` | USVN application source code (read-only). |
+```sh
+svn checkout svn://HOST/Example/trunk Example
+```
 
-### Ports
+Use the repository root instead of `/trunk` if standard directories have not been
+created. `Example`, `HOST`, ports, and host storage paths are placeholders.
 
-| Host Port | Container Port | Description |
-| - | - | - |
-`0.0.0.0:8080 TCP` | `80 TCP` | USVN web interface and HTTP SVN access, http://serverip:8080/usvn/
-`0.0.0.0:3690 TCP` | `3690 TCP` | svnserve port for svn:// protocol
+### Storage and ports
 
-### Environment Variables
+| Default host binding | Purpose |
+|---|---|
+| `8080:80` | USVN web administration and Apache |
+| `3690:3690` | Native `svn://` access |
 
-Environment variables to control `entrypoint.sh` script. Already set by default.
+| Host directory | Container directory | Contents |
+|---|---|---|
+| `./volume/svnrepo` | `/volume/svnrepo` | Repository storage root |
+| `./volume/usvn` | `/volume/usvn` | Auth files, database and other configured USVN data |
+| `./volume/usvn/config` with the override above | `/var/www/html/usvn/config` | USVN installation configuration |
 
-| Env var | Description |
-| ------- | ----------- |
-| `ENABLE_SVNSERVER=true`  |  Start svnserve for svn:// protocol access  |
-| `ENABLE_APACHE=true`  |  Start Apache web server for USVN and HTTP SVN access  |
+The root Compose file binds its ports on all interfaces. Adjust bindings, firewall
+rules, and your reverse proxy to fit the intended network. HTTPS terminates at a
+configured reverse proxy; the base container does not issue certificates.
 
----
+The bundled Apache template has `SVNParentPath /volume/svnrepo`, while the normal
+USVN/svnserve layout places repositories under `/volume/svnrepo/svn`. Before using
+that container's `/svn` endpoint, align its Apache configuration with the actual
+repository parent. Alternatively, use the separate HTTP service below, whose
+repository mount is explicitly configured. Do not assume that the panel URL is also
+a correctly configured repository URL.
 
-## Image Components
+The main image uses Ubuntu 22.04, Subversion, Apache/PHP, SQLite support, and Tini.
+`ENABLE_SVNSERVER=true` and `ENABLE_APACHE=true` control which services are started.
+The entrypoint configures repositories for the shared USVN auth files and adjusts
+filesystem permissions. Its current permission policy is broad: review host ACLs
+and storage isolation for deployments shared with other untrusted local users.
 
-### Ubuntu 22.04
+## Optional HTTP access and remote mirrors
 
-Was chosen as the latest Ubuntu release.
+See **[second-mirror/README.md](second-mirror/README.md)** for setup, existing-copy
+bootstrap, TLS, upgrades, and monitoring.
 
-### Tini-Init process
+The addon uses separate containers and shares the main repository storage. It can
+also be adapted to an existing SVN server supplying compatible htpasswd/authz
+files. It does not require another writable SVN server at the mirror site.
 
-Tini is added to have a valid init process, running as PID1. Read more information on the project page. <https://github.com/krallin/tini>.
-Tini init process together with the provided entrypoint-script, is able to **run multiple services**, including graceful shutdown. It can be used as a template for other docker projects. If you attach to the container, the entrypoint-script offers a micro CLI. Type `help` for help.
+| Default addon port | Purpose |
+|---|---|
+| `127.0.0.1:18082` on the main host | Main HTTP backend, normally behind HTTPS |
+| `18080` on the configured mirror interface | Local file downloads, authoritative metadata/locks, proxied commits |
+| `18081` on the configured mirror interface | Full proxy to the main server; file downloads also cross the WAN |
 
-### Entrypoint-Script
+These ports are configurable. Mirror bindings default to loopback until a client
+interface is configured.
 
-The `entrypoint.sh` is the central bash script, which is started from tini. It can start multiple services and offers graceful shutdown of the started services. (Tini jumps in for unhandled processes.)
-Furthermore the script will **initialize** the defined **volume folder**.
+### How locks and local downloads work
 
-Since this script is the main docker process, it cannot end and needs to run in an endless loop. To make something useful, it offers a **micro command line interface**, which can be accessed via **docker attach**. Please attach to it and type `help` for more information.
+On the mirror's normal endpoint, OPTIONS, PROPFIND, and REPORT go to the main
+server. The main server uses `SVNAllowBulkUpdates Off`: Checkout/Update return a
+skeletal change description, and the client fetches file contents with separate
+GET requests from the local mirror. LOCK, UNLOCK, and Commit execute on the main
+server. Lock information is therefore read from the authority rather than copied
+periodically by `svnsync`.
 
-### Apache and USVN
+This has two practical limits:
 
-**Apache** web server hosts the USVN web application and provides HTTP/WebDAV access to SVN repositories.
+- Network SVN operations need connectivity to the main server. Files already in a
+  working copy remain available during an outage; cached status icons may be stale.
+- A new revision must reach the mirror before its files can be downloaded locally.
+  An Update attempted during replication lag can fail; retry after synchronization.
 
-**USVN (User-friendly SVN)** is a comprehensive web-based administration interface for Subversion. It provides:
-- Repository creation and management
-- User and group administration
-- Permission management with granular access control
-- Multi-protocol support (svn://, http://, https://)
-- Centralized configuration for all repositories
+Properties, logs, and other metadata still cross the WAN. There is no offline commit
+queue, automatic promotion to master, or multi-master repository merging.
 
-USVN is accessible at `http://serverip:8080/usvn/` when the container is running.
+## TortoiseSVN and Unreal Engine
 
-**Project:** <https://github.com/usvn/usvn>
+Use the mirror's **18080** endpoint for local downloads and authoritative locks:
+`http://MIRROR_HOST:18080/svn/Example/trunk` or the required branch.
 
-### SVN server
+For an existing working copy, close Unreal, preserve local changes, release your
+active locks through its old endpoint, then use **TortoiseSVN → Relocate** to change
+the repository root while preserving the branch path. Relocate keeps the same
+repository UUID; it does not switch branches or require downloading everything.
 
-SVN server `svnserve` is started and listens on port 3690, providing fast direct access via the svn:// protocol. This works in parallel with HTTP access provided by Apache.
+In Unreal, select the **Subversion** source-control provider and use the developer's
+personal account. The working copy must already point at the correct endpoint:
+changing a Repository field in the editor does not relocate it.
 
----
+- **Check Out / Get Lock** before editing an asset; **Check In / Commit** to submit.
+- Refresh source-control status to see other users' locks. In TortoiseSVN, use
+  **Check for Modifications → Check Repository**.
+- Use `svn:needs-lock = *` on binary assets such as `.uasset` and `.umap` to make
+  working files read-only until locked. This is a client workflow aid, not a
+  server-side requirement to lock every otherwise-unlocked file before committing.
 
-## Docker build (force cache invalidation)
+Validate with two users: the second sees the first user's lock and cannot acquire
+it; Commit without Keep locks releases it. Also test a lock created directly on
+the main server and observed through the mirror without running replication.
 
-Sometimes docker build has problems to recognize that the build cache should be invalidated at some certain point. For example, if the `entrypoint.sh` script has changed, docker build is probably still using the cache and does not add the new version of the file. To force cache invalidation at a certain point the argument `CACHE_DATE` is used. Have a look at the Dockerfile and `start.sh`, how it is used.
+## Routine administration
 
----
+For the main server, use the same Compose files as during installation:
 
-## Links
+```sh
+docker compose -f docker-compose.yaml -f compose.local.yaml ps
+docker compose -f docker-compose.yaml -f compose.local.yaml logs --tail=100 usvn
+```
 
-This project was inspired by different Github projects and other sources, see some links below.
+Choose the operation needed from this table:
 
-**USVN Project:**<br>
-<https://github.com/usvn/usvn><br>
+| Operation | Command suffix with the same Compose files |
+|---|---|
+| Start | `up -d` |
+| Restart existing containers | `restart` |
+| Stop for maintenance | `stop` |
+| Apply source changes | `up -d --build` |
+| Apply changed environment or bindings | `up -d --force-recreate` |
 
-**Docker Components:**<br>
-<https://github.com/krallin/tini><br>
-<https://github.com/phusion/baseimage-docker><br>
+Back up a running repository using `svnadmin hotcopy` or an appropriately coordinated
+snapshot. Also save the USVN database, installation config, and authentication files.
+An ordinary live folder sync is not a consistent SVN backup or replication method.
+Existing repositories must be registered in USVN as well as present on disk; use
+USVN's import facilities and validate access before switching users.
 
-**SVN Docker Projects:**<br>
-<https://github.com/elleFlorio/svn-docker><br>
-<https://github.com/smezger/svn-server-ubuntu><br>
-<https://github.com/jocor87/docker-svn-ifsvnadmin><br>
-<https://github.com/MarvAmBass/docker-subversion><br>
-<https://github.com/ZevenFang/docker-svn-ifsvnadmin><br>
-<https://github.com/garethflowers/docker-svn-server><br>
+Before upgrading an existing deployment, preserve its local configuration and data,
+then fetch code with `git pull --ff-only`. See the addon guide before updating a
+mirror installation: update the main HTTP service first and preserve its Compose
+project identity. Do not rerun the installer or overwrite `.env` to restart services.
 
-<https://github.com/mfreiholz/iF.SVNAdmin><br>
+## Repository layout
 
-<https://kb.synology.com/en-sg/DSM/tutorial/How_to_launch_an_SVN_server_based_on_Docker_on_your_Synology_NAS><br>
-<https://goinbigdata.com/docker-run-vs-cmd-vs-entrypoint/><br>
-<https://docs.docker.com/config/containers/multi-service_container/><br>
-<https://github.com/docker-library/official-images#init><br>
-<https://www.cyberciti.biz/faq/howto-regenerate-openssh-host-keys/><br>
-<https://svnbook.red-bean.com/en/1.7/svn.serverconfig.choosing.html><br>
+| Path | Purpose |
+|---|---|
+| `docker-compose.yaml` | Main USVN/svnserve deployment |
+| `docker-context/` | Main image, Apache config, and startup/auth helpers |
+| `usvn/src/` | Included USVN application source |
+| `volume/` | Default host persistence directories; runtime data is not source code |
+| `second-mirror/` | Optional HTTP master endpoint, automatic mirror, TLS and tests |
 
-<https://serverfault.com/questions/156470/testing-for-a-script-that-is-waiting-on-stdin><br>
-<https://stackoverflow.com/a/42599638><br>
-<https://stackoverflow.com/a/39150040><br>
-<https://stackoverflow.com/q/70637123><br>
+The repository's Docker/addon code is covered by [LICENSE](LICENSE). Included USVN
+and bundled dependencies retain their respective licenses and copyright notices.
+The project builds on the original work by Markus Hilsenbeck and the USVN project.
 
-<https://serverfault.com/questions/23644/how-to-use-linux-username-and-password-with-subversion><br>
-<https://stackoverflow.com/questions/27131309/difference-between-svnrdump-dump-svnadmin-dump><br>
-<https://stackoverflow.com/a/69081169><br>
-
-<https://www.monitorix.org/><br>
-<https://www.monitorix.org/faq.html><br>
-
+Further reading: [Subversion](https://subversion.apache.org/),
+[USVN](https://github.com/usvn/usvn),
+[TortoiseSVN locks](https://tortoisesvn.net/docs/release/TortoiseSVN_en/tsvn-dug-locking.html),
+[SVN skelta updates](https://subversion.apache.org/docs/release-notes/1.8.html).

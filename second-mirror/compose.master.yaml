@@ -1,4 +1,4 @@
-name: svn-belgrade-http
+name: ${COMPOSE_PROJECT_NAME:-svn-master-http}
 services:
   master-http:
     image: svn-second-mirror:local

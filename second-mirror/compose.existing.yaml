@@ -1,4 +1,4 @@
-# Overlay for the EXISTING Yerevan copy. Always use together with compose.auto.yaml.
+# Overlay for an EXISTING repository copy. Use together with compose.auto.yaml.
 version: "3.2"
 services:
   mirror:

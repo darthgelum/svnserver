@@ -272,7 +272,7 @@ def render(repos):
     blocks, live, metadata = [], [], []
     for repo in repos:
         if not master and automatic and repo.get('lock_metadata_mode') != 'master-skelta-v1':
-            raise RuntimeError('Update Belgrade master-http, then run sync discovery before starting the mirror')
+            raise RuntimeError('Update master-http, then run sync discovery before starting the mirror')
         path = Path('/repositories') / repo['name'] if master else repo_path(repo)
         if not (path / 'format').is_file():
             raise RuntimeError(f'{repo["name"]}: initialize the mirror or fix the master repository mount')

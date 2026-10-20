@@ -2,4 +2,8 @@
 *.md
 docker-compose*
 volume.*
+volume/
+second-mirror/
+compose.local.yaml
+usvn/src/config/config.ini
 

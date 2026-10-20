@@ -123,7 +123,7 @@ def discover(app):
         raise ValueError('Discovery response too large')
     document = json.loads(raw)
     if document.get('lock_metadata_mode') != 'master-skelta-v1':
-        raise ValueError('Update and recreate Belgrade master-http first: authoritative locks require skelta metadata support')
+        raise ValueError('Update and recreate master-http first: authoritative locks require skelta metadata support')
     version = document['master_version']
     if not re.fullmatch(r'\d+\.\d+\.\d+', version):
         raise ValueError('Invalid discovered master_version')
@@ -190,7 +190,7 @@ def adoption_identity():
 def adopt_all(app, repos):
     """Explicit, offline conversion of a local seed. No repository data transfer."""
     if os.getenv('ROLE', 'mirror') == 'master' or os.geteuid() != 0:
-        raise RuntimeError('adopt-all must run as root in the Yerevan sync container')
+        raise RuntimeError('adopt-all must run as root in the mirror sync container')
     if not repos:
         raise RuntimeError('Run discover first; it downloads only the catalog and access rules')
     existing = [repo for repo in repos if app.repo_path(repo).exists()]
@@ -218,7 +218,7 @@ def adopt_all(app, repos):
         pending.append(repo)
     for repo in pending:
         path = app.repo_path(repo)
-        # Only the explicitly selected Yerevan copies; never the master or a parent tree.
+        # Only the explicitly selected mirror copies; never the master or a parent tree.
         for folder, dirs, files in os.walk(path, followlinks=False):
             directory = Path(folder)
             os.chown(directory, app.UID, app.UID)
@@ -328,8 +328,8 @@ def configure_mirror():
     password = getpass.getpass('Replication SVN password: ')
     if not password:
         raise ValueError('Password cannot be empty')
-    bind = str(ipaddress.IPv4Address(input('Yerevan NAS LAN IPv4 for clients: ').strip()))
-    data = input('Absolute NAS data path [/volume1/docker/svn-second-mirror-data]: ').strip() or '/volume1/docker/svn-second-mirror-data'
+    bind = str(ipaddress.IPv4Address(input('Mirror host LAN IPv4 for clients: ').strip()))
+    data = input('Absolute mirror state path [/srv/svn-mirror/data]: ').strip() or '/srv/svn-mirror/data'
     if not data.startswith('/') or not re.fullmatch(r'/[A-Za-z0-9_./-]+', data) or '..' in Path(data).parts:
         raise ValueError('Use an absolute data path without spaces or ..')
     existing = input('Existing repository parent path (blank ONLY for a new empty mirror): ').strip()

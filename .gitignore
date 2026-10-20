@@ -8,3 +8,7 @@ volume/svnrepo/*
 !volume/svnrepo/.gitignore
 
 volume/usvn/*
+
+# Local deployment overrides and installed application configuration.
+/compose.local.yaml
+/usvn/src/config/config.ini
