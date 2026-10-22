@@ -173,7 +173,62 @@ else: raise AssertionError('Catalog leaked')
         svn(master, 'mkdir', 'http://master/svn/Example/new-after-copy', '-m', 'delta')
         before = call('run', '--rm', '--entrypoint', 'svnlook', '-v', existing + ':/existing',
                       IMAGE, 'youngest', '/existing/Example')
-        call('run', '--rm', *adopt_args, IMAGE, 'adopt-all')
+        # A failure in a later repository must preserve earlier verification,
+        # without adopting/chowning/quarantining any repository prematurely.
+        call('run', '--rm', '--entrypoint', 'python3', '-v', existing + ':/existing', IMAGE, '-c',
+             'from pathlib import Path; import shutil; p=Path("/existing"); '
+             'shutil.move(str(p/"Second/db/revs/0/1"), str(p/"held-second-revision")); '
+             'shutil.copy2(p/"Example/db/revs/0/0", p/"held-example-revision")')
+        failed = docker('run', '--rm', *adopt_args, IMAGE, 'adopt-all', ok=False)
+        assert failed.returncode != 0 and 'Example: verifying local history' in failed.stdout
+        assert 'Second: verifying local history' in failed.stdout
+        call('run', '--rm', '--entrypoint', 'test', '-v', existing + ':/existing',
+             IMAGE, '!', '-e', '/existing/Example/seed-hooks.saved')
+        resumed = docker('run', '--rm', *adopt_args, IMAGE, 'adopt-all', ok=False)
+        assert resumed.returncode != 0 and 'Example: reusing successful local verification' in resumed.stdout
+        assert 'Example: verifying local history' not in resumed.stdout
+        # Even a same-size content change with mtime restored invalidates the
+        # checkpoint through ctime; never trust only UUID and youngest revision.
+        call('run', '--rm', '--entrypoint', 'python3', '-v', existing + ':/existing', IMAGE, '-c',
+             'from pathlib import Path; import os; p=Path("/existing/Example/db/revs/0/0"); '
+             's=p.stat(); data=p.read_bytes(); p.write_bytes(b"X"+data[1:]); '
+             'os.utime(p, ns=(s.st_atime_ns, s.st_mtime_ns))')
+        changed = docker('run', '--rm', *adopt_args, IMAGE, 'adopt-all', ok=False)
+        assert changed.returncode != 0 and 'Example: verifying local history' in changed.stdout
+        assert 'Example: reusing' not in changed.stdout
+        call('run', '--rm', '--entrypoint', 'python3', '-v', existing + ':/existing', IMAGE, '-c',
+             'from pathlib import Path; import shutil; p=Path("/existing"); '
+             'shutil.copy2(p/"held-example-revision", p/"Example/db/revs/0/0")')
+        forced = docker('run', '--rm', *adopt_args, IMAGE, 'adopt-all', '--reverify', ok=False)
+        assert forced.returncode != 0 and 'Example: verifying local history' in forced.stdout
+        call('run', '--rm', '--entrypoint', 'python3', '-v', existing + ':/existing', IMAGE, '-c',
+             'from pathlib import Path; import shutil; p=Path("/existing"); '
+             'shutil.move(str(p/"held-second-revision"), str(p/"Second/db/revs/0/1"))')
+        # A writer changing an EARLIER seed while a later one is verified must
+        # abort the whole adoption before any hooks/ownership are changed.
+        race_probe = '''import sys
+sys.path.insert(0, '/opt/svnmirror')
+import app, auto
+app.prepare_worker(drop=False)
+original = app.run
+def mutate_earlier(args):
+    result = original(args)
+    if args == ['svnadmin', 'verify', '/data/repositories/Second']:
+        (app.DATA / 'repositories/Example/changed-during-adopt').write_text('changed')
+    return result
+app.run = mutate_earlier
+with app.worker_lock():
+    auto.adopt_all(app, app.config(), reverify=True)
+'''
+        raced = docker('run', '--rm', *adopt_args, '--entrypoint', 'python3', IMAGE, '-c', race_probe, ok=False)
+        assert raced.returncode != 0 and 'Example: seed changed before adoption' in raced.stderr
+        call('run', '--rm', '--entrypoint', 'test', '-v', existing + ':/existing',
+             IMAGE, '!', '-e', '/existing/Example/seed-hooks.saved')
+        call('run', '--rm', '--entrypoint', 'python3', '-v', existing + ':/existing', IMAGE, '-c',
+             'from pathlib import Path; Path("/existing/Example/changed-during-adopt").unlink()')
+        adopted = call('run', '--rm', *adopt_args, IMAGE, 'adopt-all')
+        assert 'Example: verifying local history' in adopted
+        assert 'Second: reusing successful local verification' in adopted
         after = call('run', '--rm', '--entrypoint', 'svnlook', '-v', existing + ':/existing',
                      IMAGE, 'youngest', '/existing/Example')
         assert before == after == '2'  # Adoption never downloads repository history.
@@ -190,7 +245,7 @@ else: raise AssertionError('Catalog leaked')
         svn(seed_mirror, 'mkdir', 'http://127.0.0.1/svn/Example/from-existing', '-m', 'write through reused copy')
         assert call('exec', master, 'svnlook', 'youngest', '/repositories/Example') == '4'
         assert call('exec', seed_mirror, 'svnlook', 'youngest', '/data/repositories/Example') == '3'
-        print('PASS: protected discovery, read-only replication, automatic repositories/auth, proxied commit, authz revocation, preserved data, existing-copy adoption without history download, delta-only sync')
+        print('PASS: automatic repositories/auth, existing-copy adoption, resume after failure, unchanged checkpoint reuse, same-size/mtime-restored corruption invalidation, forced reverify, no premature adoption, delta-only sync')
 finally:
     for name in reversed(containers):
         docker('rm', '-f', name, ok=False)

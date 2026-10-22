@@ -1,12 +1,14 @@
 """Automatic repository discovery, auth delivery and mirror publication."""
 import base64
 import getpass
+import hashlib
 import ipaddress
 import json
 import os
 from pathlib import Path
 import re
 import signal
+import stat
 import subprocess
 import time
 import urllib.request
@@ -187,7 +189,30 @@ def adoption_identity():
     return read_json(DATA / 'repositories' / '.svn-mirror-adoption.json', {})
 
 
-def adopt_all(app, repos):
+def seed_fingerprint(path):
+    """Stat every entry, without reading asset contents or following symlinks."""
+    def fail(error):
+        raise error
+    digest = hashlib.sha256()
+    for folder, dirs, files in os.walk(path, followlinks=False, onerror=fail):
+        dirs.sort()
+        files.sort()
+        directory = Path(folder)
+        for entry in [directory, *(directory / name for name in files)]:
+            info = entry.lstat()
+            if not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
+                raise RuntimeError(path.name + ': seed contains symlinks or special files; inspect before adoption')
+            record = (str(entry.relative_to(path)), info.st_dev, info.st_ino,
+                      info.st_mode, info.st_uid, info.st_gid, info.st_size,
+                      info.st_mtime_ns, info.st_ctime_ns)
+            digest.update(json.dumps(record, ensure_ascii=True).encode() + b'\n')
+        for name in dirs:
+            if not stat.S_ISDIR((directory / name).lstat().st_mode):
+                raise RuntimeError(path.name + ': seed contains symlinks; inspect before adoption')
+    return digest.hexdigest()
+
+
+def adopt_all(app, repos, reverify=False):
     """Explicit, offline conversion of a local seed. No repository data transfer."""
     if os.getenv('ROLE', 'mirror') == 'master' or os.geteuid() != 0:
         raise RuntimeError('adopt-all must run as root in the mirror sync container')
@@ -196,7 +221,8 @@ def adopt_all(app, repos):
     existing = [repo for repo in repos if app.repo_path(repo).exists()]
     if not existing:
         raise RuntimeError('No matching local repositories. Check EXISTING_REPOS; refusing an empty seed')
-    pending = []
+    pending, verified = [], {}
+    verifier = app.run(['svnadmin', '--version', '--quiet'])
     # Validate ALL selected copies before changing ownership, hooks or svnsync metadata.
     for repo in existing:
         path = app.repo_path(repo)
@@ -210,12 +236,31 @@ def adopt_all(app, repos):
         initialized = app.prop(repo, 'svn:sync-from-url')
         if initialized and initialized != repo.get('source_url', repo['master_url']):
             raise RuntimeError(repo['name'] + ': already mirrors a different source')
-        for folder, dirs, files in os.walk(path, followlinks=False):
-            if any((Path(folder) / name).is_symlink() for name in dirs + files):
-                raise RuntimeError(repo['name'] + ': seed contains symlinks; inspect before adoption')
-        print(repo['name'] + ': verifying local history (no history download)', flush=True)
-        app.run(['svnadmin', 'verify', str(path)])
+        fingerprint = seed_fingerprint(path)
+        identity = {'version': 1, 'source_uuid': source_uuid,
+                    'source_url': repo.get('source_url', repo['master_url']),
+                    'verifier': verifier, 'fingerprint': fingerprint}
+        checkpoint = DATA / 'status' / 'adopt-verified' / (repo['name'] + '.json')
+        try:
+            previous = read_json(checkpoint, {})
+        except (OSError, ValueError):
+            previous = {}
+        if not reverify and isinstance(previous, dict) and previous.get('identity') == identity:
+            print(repo['name'] + ': reusing successful local verification (seed unchanged)', flush=True)
+        else:
+            print(repo['name'] + ': verifying local history (no history download)', flush=True)
+            app.run(['svnadmin', 'verify', str(path)])
+            if seed_fingerprint(path) != fingerprint:
+                raise RuntimeError(repo['name'] + ': seed changed during verification; stop other writers and retry')
+            # Persist each success immediately, even if the next repository fails.
+            atomic_json(checkpoint, {'identity': identity, 'verified_at': time.time()})
+        verified[repo['name']] = fingerprint
         pending.append(repo)
+    # An earlier seed may have changed while another large history was verified.
+    # Check them all again before changing ownership, hooks or SVN metadata.
+    for repo in pending:
+        if seed_fingerprint(app.repo_path(repo)) != verified[repo['name']]:
+            raise RuntimeError(repo['name'] + ': seed changed before adoption; stop other writers and retry')
     for repo in pending:
         path = app.repo_path(repo)
         # Only the explicitly selected mirror copies; never the master or a parent tree.

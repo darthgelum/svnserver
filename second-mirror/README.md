@@ -155,6 +155,21 @@ guards, sets worker permissions and initializes `svnsync --allow-non-empty`.
 It does not download repository history. UUID equality and local verification alone
 cannot prove that two independently modified histories are identical.
 
+Successful verification is checkpointed per repository under
+`MIRROR_DATA/status/adopt-verified/`. If another repository fails or the command is
+interrupted, rerun `adopt-all`: unchanged verified copies report
+`reusing successful local verification` instead of reading their asset contents
+again. Source identity and local HEAD are still checked on each run. The checkpoint
+compares the whole local tree by file/directory identity, sizes, permissions and
+nanosecond mtime/ctime, and checks for changes during verification and before adoption.
+Changing/replacing a copy or upgrading the reported svnadmin version invalidates it.
+This requires the copies to stay offline: it is not a substitute for excluding other
+writers, nor does a stat fingerprint detect silent storage corruption without
+metadata changes. Use `run --rm sync adopt-all --reverify` to force full checks.
+Runs predating this feature have no saved verification results and need one initial
+pass. Checkpoints only record verification; final adoption markers are written after
+all repositories have been validated and converted successfully.
+
 After successful adoption:
 
 ```sh

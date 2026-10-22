@@ -370,7 +370,9 @@ def main():
                 print(repo['name'], flush=True)
             return 0
         if automatic and command == 'adopt-all':
-            return auto.adopt_all(sys.modules[__name__], repos)
+            if sys.argv[2:] not in ([], ['--reverify']):
+                raise ValueError('Usage: adopt-all [--reverify]')
+            return auto.adopt_all(sys.modules[__name__], repos, reverify=sys.argv[2:] == ['--reverify'])
         if automatic and command in ('init', 'sync-once', 'sync-loop', 'copy-revprops'):
             return auto.sync(sys.modules[__name__], command)
         if command in ('init', 'seed'):
