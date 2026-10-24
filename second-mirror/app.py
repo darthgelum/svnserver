@@ -20,11 +20,11 @@ UID = 10001
 SECRETS = {}
 
 
-def run(args):
+def run(args, **kwargs):
     try:
         result = subprocess.run(args, text=True, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE,
-                                timeout=int(os.getenv('SYNC_TIMEOUT_SECONDS', '21600')))
+                                timeout=int(os.getenv('SYNC_TIMEOUT_SECONDS', '21600')), **kwargs)
     except subprocess.TimeoutExpired:
         # TimeoutExpired.__str__ includes argv, which can include a password.
         raise RuntimeError(f'{args[0]} timed out; check SYNC_TIMEOUT_SECONDS') from None
@@ -370,9 +370,11 @@ def main():
                 print(repo['name'], flush=True)
             return 0
         if automatic and command == 'adopt-all':
-            if sys.argv[2:] not in ([], ['--reverify']):
-                raise ValueError('Usage: adopt-all [--reverify]')
-            return auto.adopt_all(sys.modules[__name__], repos, reverify=sys.argv[2:] == ['--reverify'])
+            if sys.argv[2:] not in ([], ['--reverify'], ['--resume-conversion']):
+                raise ValueError('Usage: adopt-all [--reverify | --resume-conversion]')
+            return auto.adopt_all(sys.modules[__name__], repos,
+                                  reverify=sys.argv[2:] == ['--reverify'],
+                                  resume_conversion=sys.argv[2:] == ['--resume-conversion'])
         if automatic and command in ('init', 'sync-once', 'sync-loop', 'copy-revprops'):
             return auto.sync(sys.modules[__name__], command)
         if command in ('init', 'seed'):

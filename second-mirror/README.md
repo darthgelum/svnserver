@@ -170,6 +170,23 @@ Runs predating this feature have no saved verification results and need one init
 pass. Checkpoints only record verification; final adoption markers are written after
 all repositories have been validated and converted successfully.
 
+Permission normalization grants both owner and group access, including copies whose
+original Unix modes are zero. Read/write/traversal access is probed with the actual
+worker UID before conversion. Checkpoints are refreshed after our own permission,
+hook and revision-zero metadata changes so conversion failures can also resume.
+If this probe still fails on a NAS, inspect its ACLs rather than repeatedly verifying
+history or granting unrestricted access to the entire share.
+
+**Recovery of an older, partially converted adoption:** if all selected copies
+already passed full verification and have remained offline/unchanged since, use
+`run --rm sync adopt-all --resume-conversion` after fixing the cause. This explicit
+mode requires saved successful checks for every selected repository, matching source
+identity/verifier, and at least one already initialized mirror. It trusts the prior
+history verification despite changed filesystem metadata; it does not revalidate
+asset contents. New checkpoints also check the recorded local HEAD. Use this only
+for the conversion/permissions failure case, never to bypass failed history checks
+or to accept externally modified copies. Normal `adopt-all` retains change detection.
+
 After successful adoption:
 
 ```sh

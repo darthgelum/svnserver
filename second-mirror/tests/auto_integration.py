@@ -226,9 +226,59 @@ with app.worker_lock():
              IMAGE, '!', '-e', '/existing/Example/seed-hooks.saved')
         call('run', '--rm', '--entrypoint', 'python3', '-v', existing + ':/existing', IMAGE, '-c',
              'from pathlib import Path; Path("/existing/Example/changed-during-adopt").unlink()')
-        adopted = call('run', '--rm', *adopt_args, IMAGE, 'adopt-all')
-        assert 'Example: verifying local history' in adopted
-        assert 'Second: reusing successful local verification' in adopted
+        not_converted = docker('run', '--rm', *adopt_args, IMAGE, 'adopt-all', '--resume-conversion', ok=False)
+        assert not_converted.returncode != 0 and 'already partially initialized adoption' in not_converted.stderr
+        # Reproduce restrictive permissions seen in imported NAS copies. Merely
+        # granting the new owner's GROUP access is insufficient for its OWNER.
+        zero_modes = '''from pathlib import Path
+import os
+for name in ('Example', 'Second'):
+    for folder, dirs, files in os.walk('/existing/' + name):
+        for child in files:
+            (Path(folder) / child).chmod(0)
+        Path(folder).chmod(0)
+'''
+        call('run', '--rm', '--entrypoint', 'python3', '-v', existing + ':/existing', IMAGE, '-c', zero_modes)
+        conversion_probe = '''import sys
+sys.path.insert(0, '/opt/svnmirror')
+import app, auto
+app.prepare_worker(drop=False)
+original = app.initialize
+def fail_second(repo, *args, **kwargs):
+    if repo['name'] == 'Second':
+        raise RuntimeError('simulated conversion interruption')
+    return original(repo, *args, **kwargs)
+app.initialize = fail_second
+with app.worker_lock():
+    auto.adopt_all(app, app.config())
+'''
+        interrupted = docker('run', '--rm', *adopt_args, '--entrypoint', 'python3', IMAGE, '-c', conversion_probe, ok=False)
+        assert interrupted.returncode != 0 and 'simulated conversion interruption' in interrupted.stderr
+        assert 'Example: adopted at r2' in interrupted.stdout
+        # Our own chown/chmod, hooks and sync revprops must not invalidate checks.
+        resumed_conversion = docker('run', '--rm', *adopt_args, '--entrypoint', 'python3', IMAGE, '-c', conversion_probe, ok=False)
+        assert resumed_conversion.returncode != 0 and 'simulated conversion interruption' in resumed_conversion.stderr
+        assert 'Example: reusing successful local verification' in resumed_conversion.stdout
+        assert 'Second: reusing successful local verification' in resumed_conversion.stdout
+        assert 'verifying local history' not in resumed_conversion.stdout
+        # Explicit recovery for pre-fix conversions: all prior checks required,
+        # with source/verifier matching and at least one initialized repository.
+        call('run', '--rm', '--entrypoint', 'python3', '-v', existing + ':/existing', IMAGE, '-c', zero_modes)
+        call('run', '--rm', '--entrypoint', 'python3', '-v', metadata + ':/data', IMAGE, '-c',
+             'from pathlib import Path; p=Path("/data/status/adopt-verified/Second.json"); p.rename(p.with_suffix(".held"))')
+        missing = docker('run', '--rm', *adopt_args, IMAGE, 'adopt-all', '--resume-conversion', ok=False)
+        assert missing.returncode != 0 and 'requires a successful verification checkpoint' in missing.stderr
+        call('run', '--rm', '--entrypoint', 'python3', '-v', metadata + ':/data', IMAGE, '-c',
+             'from pathlib import Path; p=Path("/data/status/adopt-verified/Second.held"); p.rename(p.with_suffix(".json"))')
+        # Earlier checkpoint versions had no explicit HEAD field, as in the
+        # deployed pre-fix permission failure. Keep that recovery compatible.
+        call('run', '--rm', '--entrypoint', 'python3', '-v', metadata + ':/data', IMAGE, '-c',
+             'from pathlib import Path; import json; '
+             'paths=list(Path("/data/status/adopt-verified").glob("*.json")); '
+             '[(p.write_text(json.dumps({k:v for k,v in json.loads(p.read_text()).items() '
+             'if k != "local_revision"}))) for p in paths]')
+        adopted = call('run', '--rm', *adopt_args, IMAGE, 'adopt-all', '--resume-conversion')
+        assert 'resuming verified conversion' in adopted and 'verifying local history' not in adopted
         after = call('run', '--rm', '--entrypoint', 'svnlook', '-v', existing + ':/existing',
                      IMAGE, 'youngest', '/existing/Example')
         assert before == after == '2'  # Adoption never downloads repository history.
@@ -245,7 +295,7 @@ with app.worker_lock():
         svn(seed_mirror, 'mkdir', 'http://127.0.0.1/svn/Example/from-existing', '-m', 'write through reused copy')
         assert call('exec', master, 'svnlook', 'youngest', '/repositories/Example') == '4'
         assert call('exec', seed_mirror, 'svnlook', 'youngest', '/data/repositories/Example') == '3'
-        print('PASS: automatic repositories/auth, existing-copy adoption, resume after failure, unchanged checkpoint reuse, same-size/mtime-restored corruption invalidation, forced reverify, no premature adoption, delta-only sync')
+        print('PASS: seed adoption, zero-mode permissions, service-UID access, resumable conversion, guarded legacy recovery, corruption/change invalidation, no premature adoption, delta-only sync')
 finally:
     for name in reversed(containers):
         docker('rm', '-f', name, ok=False)

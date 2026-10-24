@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import signal
 import stat
+import sys
 import subprocess
 import time
 import urllib.request
@@ -212,7 +213,7 @@ def seed_fingerprint(path):
     return digest.hexdigest()
 
 
-def adopt_all(app, repos, reverify=False):
+def adopt_all(app, repos, reverify=False, resume_conversion=False):
     """Explicit, offline conversion of a local seed. No repository data transfer."""
     if os.getenv('ROLE', 'mirror') == 'master' or os.geteuid() != 0:
         raise RuntimeError('adopt-all must run as root in the mirror sync container')
@@ -221,7 +222,8 @@ def adopt_all(app, repos, reverify=False):
     existing = [repo for repo in repos if app.repo_path(repo).exists()]
     if not existing:
         raise RuntimeError('No matching local repositories. Check EXISTING_REPOS; refusing an empty seed')
-    pending, verified = [], {}
+    pending, verified, records = [], {}, {}
+    partially_initialized = False
     verifier = app.run(['svnadmin', '--version', '--quiet'])
     # Validate ALL selected copies before changing ownership, hooks or svnsync metadata.
     for repo in existing:
@@ -236,6 +238,7 @@ def adopt_all(app, repos, reverify=False):
         initialized = app.prop(repo, 'svn:sync-from-url')
         if initialized and initialized != repo.get('source_url', repo['master_url']):
             raise RuntimeError(repo['name'] + ': already mirrors a different source')
+        partially_initialized = partially_initialized or bool(initialized)
         fingerprint = seed_fingerprint(path)
         identity = {'version': 1, 'source_uuid': source_uuid,
                     'source_url': repo.get('source_url', repo['master_url']),
@@ -245,7 +248,17 @@ def adopt_all(app, repos, reverify=False):
             previous = read_json(checkpoint, {})
         except (OSError, ValueError):
             previous = {}
-        if not reverify and isinstance(previous, dict) and previous.get('identity') == identity:
+        if resume_conversion:
+            saved = previous.get('identity', {}) if isinstance(previous, dict) else {}
+            if (not isinstance(previous, dict) or not isinstance(saved, dict) or not previous.get('verified_at')
+                    or {k: v for k, v in saved.items() if k != 'fingerprint'}
+                    != {k: v for k, v in identity.items() if k != 'fingerprint'}):
+                raise RuntimeError(repo['name'] + ': resume-conversion requires a successful verification checkpoint for this source and verifier')
+            if previous.get('local_revision') not in (None, int(app.run(['svnlook', 'youngest', str(path)]))):
+                raise RuntimeError(repo['name'] + ': local HEAD changed since verification; use normal adopt-all')
+            print(repo['name'] + ': resuming verified conversion (offline history must be unchanged)', flush=True)
+        elif (not reverify and isinstance(previous, dict) and previous.get('verified_at')
+              and previous.get('identity') == identity):
             print(repo['name'] + ': reusing successful local verification (seed unchanged)', flush=True)
         else:
             print(repo['name'] + ': verifying local history (no history download)', flush=True)
@@ -253,9 +266,15 @@ def adopt_all(app, repos, reverify=False):
             if seed_fingerprint(path) != fingerprint:
                 raise RuntimeError(repo['name'] + ': seed changed during verification; stop other writers and retry')
             # Persist each success immediately, even if the next repository fails.
-            atomic_json(checkpoint, {'identity': identity, 'verified_at': time.time()})
+            previous = {'identity': identity, 'verified_at': time.time(),
+                        'local_revision': int(app.run(['svnlook', 'youngest', str(path)]))}
+            atomic_json(checkpoint, previous)
+        records[repo['name']] = {'identity': identity, 'verified_at': previous['verified_at'],
+                                 'local_revision': int(app.run(['svnlook', 'youngest', str(path)]))}
         verified[repo['name']] = fingerprint
         pending.append(repo)
+    if resume_conversion and not partially_initialized:
+        raise RuntimeError('resume-conversion requires an already partially initialized adoption; use normal adopt-all')
     # An earlier seed may have changed while another large history was verified.
     # Check them all again before changing ownership, hooks or SVN metadata.
     for repo in pending:
@@ -267,14 +286,38 @@ def adopt_all(app, repos, reverify=False):
         for folder, dirs, files in os.walk(path, followlinks=False):
             directory = Path(folder)
             os.chown(directory, app.UID, app.UID)
-            directory.chmod((directory.stat().st_mode & 0o777) | 0o2070)
+            directory.chmod((directory.stat().st_mode & 0o777) | 0o2770)
             for name in files:
                 child = directory / name
                 os.chown(child, app.UID, app.UID)
-                child.chmod((child.stat().st_mode & 0o777) | 0o060)
+                child.chmod((child.stat().st_mode & 0o777) | 0o660)
+        # Ownership/mode changes are our own work, not changes to SVN history.
+        # Refresh each verified snapshot so a later conversion failure can resume.
+        records[repo['name']]['identity']['fingerprint'] = seed_fingerprint(path)
+        atomic_json(DATA / 'status' / 'adopt-verified' / (repo['name'] + '.json'), records[repo['name']])
+    # Check access with the actual service identity before changing any hooks.
+    app.run([sys.executable, '-c', '''import os, sys
+def fail(error):
+    raise error
+for root in sys.argv[1:]:
+    for folder, dirs, files in os.walk(root, followlinks=False, onerror=fail):
+        if not os.access(folder, os.R_OK | os.W_OK | os.X_OK):
+            raise PermissionError('Service UID cannot traverse/write ' + folder)
+        for name in files:
+            path = os.path.join(folder, name)
+            if not os.access(path, os.R_OK | os.W_OK):
+                raise PermissionError('Service UID cannot read/write ' + path)
+''', *(str(app.repo_path(repo)) for repo in pending)],
+            user=app.UID, group=app.UID, extra_groups=[app.UID])
     app.drop_worker_identity()
     for repo in pending:
-        app.initialize(repo, seed=True, verified_seed=True)
+        try:
+            app.initialize(repo, seed=True, verified_seed=True)
+        finally:
+            # initialize writes hooks, UUID instance data and revision-zero sync
+            # properties, but downloads no history. Keep its snapshot resumable.
+            records[repo['name']]['identity']['fingerprint'] = seed_fingerprint(app.repo_path(repo))
+            atomic_json(DATA / 'status' / 'adopt-verified' / (repo['name'] + '.json'), records[repo['name']])
         print(repo['name'] + ': adopted at r' + app.run(['svnlook', 'youngest', str(app.repo_path(repo))]), flush=True)
     import uuid
     identity = {'id': str(uuid.uuid4())}
