@@ -138,6 +138,68 @@ else: raise AssertionError('Catalog leaked')
         assert svn(master, 'ls', 'http://master/svn/Third').returncode == 0
         sync()
         wait_repo('Third')
+        # Auth polling must continue while a repository transfer occupies the
+        # worker. Exercise real password/group/ACL delivery and a LOCAL file GET
+        # so successful master-side authentication cannot hide stale mirror rules.
+        blocked = PREFIX + '-blocked-worker'
+        blocked_script = '''import sys, time
+from pathlib import Path
+sys.path.insert(0, '/opt/svnmirror')
+import app, auto
+app.prepare_worker(drop=False)
+with app.worker_lock():
+    app.drop_worker_identity()
+    def paused(repo, full_props=False):
+        Path('/data/status/test-transfer-blocked').touch()
+        time.sleep(120)
+        return True
+    app.sync_one = paused
+    auto.sync(app, 'sync-loop')
+'''
+        containers.append(blocked)
+        call('run', '-d', '--name', blocked, *sync_args,
+             '-e', 'DISCOVERY_INTERVAL_SECONDS=1', '--entrypoint', 'python3',
+             IMAGE, '-c', blocked_script)
+        for _ in range(50):
+            if docker('exec', blocked, 'test', '-f', '/data/status/test-transfer-blocked', ok=False).returncode == 0:
+                break
+            time.sleep(.2)
+        else:
+            raise RuntimeError(docker('logs', blocked).stderr)
+        try:
+            call('run', '--rm', '--entrypoint', 'htpasswd',
+                 '-v', str(root / 'auth') + ':/auth', IMAGE,
+                 '-b', '/auth/htpasswd', 'bob', 'new-pass')
+            write('auth/authz', '[groups]\nreaders = bob\n[Example:/]\nalice = rw\nbob = r\n* =\n'
+                  '[Second:/]\nalice = rw\n@readers = r\n* =\n[Third:/]\nalice = rw\n* =\n')
+            local_get = '''import urllib.request, urllib.error, base64
+url='http://127.0.0.1/svn/Second/!svn/rvr/2/trunk/asset'
+def get(password):
+    req=urllib.request.Request(url, headers={'Authorization':'Basic '+base64.b64encode(('bob:'+password).encode()).decode()})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as response: return response.read()
+    except urllib.error.HTTPError: return None
+assert get('new-pass') == b'asset'
+assert get('test-pass') is None
+'''
+            for _ in range(40):
+                if docker('exec', mirror, 'python3', '-c', local_get, ok=False).returncode == 0:
+                    break
+                time.sleep(.25)
+            else:
+                raise AssertionError('Password/group ACL changes stalled behind history transfer')
+            write('auth/authz', '[Example:/]\nalice = rw\nbob = r\n* =\n'
+                  '[Second:/]\nalice = rw\n* =\n[Third:/]\nalice = rw\n* =\n')
+            revoked_get = local_get[:local_get.index("assert get('new-pass')")] + "assert get('new-pass') is None\n"
+            for _ in range(40):
+                if docker('exec', mirror, 'python3', '-c', revoked_get, ok=False).returncode == 0:
+                    break
+                time.sleep(.25)
+            else:
+                raise AssertionError('Access revocation stalled behind history transfer')
+        finally:
+            call('stop', '-t', '2', blocked)
+        print('PASS: password/group ACL refresh and revocation during a blocked transfer')
         # Revocation of a normal user's rights is delivered automatically.
         write('auth/authz', '[Example:/]\nalice = rw\n* =\n[Second:/]\nalice = rw\n* =\n[Third:/]\nalice = rw\n* =\n')
         sync()

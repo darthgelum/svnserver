@@ -12,7 +12,9 @@ import stat
 import sys
 import subprocess
 import time
+import threading
 import urllib.request
+import urllib.error
 from urllib.parse import urlsplit
 
 DATA = Path('/data')
@@ -327,23 +329,51 @@ for root in sys.argv[1:]:
     return 0
 
 
+def refresh_discovery(app):
+    try:
+        repos = discover(app)
+        print(f'Discovered {len(repos)} repositories', flush=True)
+        return True
+    except Exception as exc:
+        # Never log response bodies, request URLs or authentication headers.
+        message = 'Discovery failed: ' + type(exc).__name__
+        if isinstance(exc, urllib.error.HTTPError):
+            message += ' HTTP ' + str(exc.code)
+        print(message, flush=True)
+        atomic_json(DATA / 'status' / 'discovery.json',
+                    {'ok': False, 'checked_at': time.time(), 'error': message})
+        return False
+
+
+def discovery_loop(app, stop):
+    interval = max(1, int(os.getenv('DISCOVERY_INTERVAL_SECONDS', '30')))
+    while not stop.wait(interval):
+        refresh_discovery(app)
+
+
 def sync(app, command):
     if os.getenv('REQUIRE_SEED_ADOPTION') == '1':
         marker = read_json(DATA / 'status' / 'adoption.json', {})
         if not marker or marker != adoption_identity():
             raise RuntimeError('Existing-copy mode requires discover then adopt-all before synchronization')
+    refresh_discovery(app)
+    stop = threading.Event()
+    thread = None
+    if command == 'sync-loop':
+        thread = threading.Thread(target=discovery_loop, args=(app, stop), daemon=True)
+        thread.start()
+    try:
+        return sync_passes(app, command)
+    finally:
+        stop.set()
+        if thread is not None:
+            thread.join(timeout=35)
+
+
+def sync_passes(app, command):
     while True:
-        success = True
-        try:
-            repos = discover(app)
-            print(f'Discovered {len(repos)} repositories', flush=True)
-        except Exception as exc:
-            # Do not include server response content, auth header or credentials.
-            message = 'Discovery failed: ' + type(exc).__name__
-            print(message, flush=True)
-            atomic_json(DATA / 'status' / 'discovery.json', {'ok': False, 'checked_at': time.time(), 'error': message})
-            repos = repositories(settings())
-            success = False
+        success = discovery_health() == 0
+        repos = repositories(settings())
         ready = {repo['name']: repo for repo in published() if any(r == repo for r in repos)}
         atomic_json(DATA / 'status' / 'published.json', list(ready.values()))
         for repo in repos:

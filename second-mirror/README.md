@@ -254,8 +254,13 @@ docker compose -f compose.master.yaml exec master-http tail -n 80 /var/log/apach
 ```
 
 Repository removal from the source catalog removes its published mirror URL after a
-successful discovery, but keeps local data. Auth changes are delivered by discovery;
-offline direct file reads may still use the last cached rules until it succeeds.
+successful worker pass, but keeps local data. During `sync-loop`, discovery refreshes
+accounts, password hashes, groups and repository/path access rules independently of
+history transfers, every 30 seconds by default (`DISCOVERY_INTERVAL_SECONDS`). This
+is a polling delay plus request time, not an immediate push. A slow checkout history
+transfer does not postpone this refresh. Failed discovery keeps the last cached
+rules; inspect discovery health when changing permissions. USVN interface settings,
+repository hooks and `svnserve.conf` are not copied to mirrors.
 The mirror never becomes an independent master. Back up the main server and save
 host-specific config, secrets, mirror state/adoption markers and a recovery plan.
 
@@ -320,6 +325,7 @@ mirror `.env` and credentials; do not overwrite a live setup with example files.
 | `EXISTING_REPOS` | Existing repository parent used by the existing-copy overlay |
 | `BIND_IP`, `MIRROR_PORT`, `LIVE_PORT` | Mirror client interface and ports; ports default to 18080/18081 |
 | `SYNC_INTERVAL_SECONDS` | Delay between full worker passes; default 30 seconds |
+| `DISCOVERY_INTERVAL_SECONDS` | Delay between catalog/auth refreshes during `sync-loop`, independent of history transfers; default 30 seconds |
 | `SYNC_TIMEOUT_SECONDS` | Per-SVN-process timeout; default 21600 seconds |
 | `MAX_SYNC_AGE_SECONDS`, `MAX_LAG_REVISIONS` | Health thresholds; auto Compose defaults to 1800 seconds and zero lag |
 | `REVPROP_RESCAN_SECONDS` | Periodic old revision-property reconciliation; auto Compose default 86400 seconds |
