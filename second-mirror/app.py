@@ -312,6 +312,7 @@ def render(repos):
     header = '''ProxyRequests Off
 SSLProxyEngine On
 SSLProxyVerify require
+SSLProxyVerifyDepth 5
 SSLProxyCheckPeerName On
 SSLProxyCACertificateFile /etc/ssl/certs/ca-certificates.crt
 ProxyTimeout 21600

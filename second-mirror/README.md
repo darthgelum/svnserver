@@ -253,6 +253,14 @@ docker compose -f compose.master.yaml logs --tail=100 master-http
 docker compose -f compose.master.yaml exec master-http tail -n 80 /var/log/apache2/error.log
 ```
 
+For mirror-side `500 Proxy Error`, inspect both container logs and
+`docker exec MIRROR_CONTAINER tail -n 80 /var/log/apache2/error.log`.
+`AH02040: Certificate Chain too long` means the Apache upstream verification-depth
+limit was exceeded. The generated configuration allows depth 5 while retaining
+required CA trust and hostname verification. Update/rebuild and recreate `mirror`
+to apply it; do not disable certificate verification. An authentication error such
+as `user ... not found` or `Password Mismatch` is a separate login problem.
+
 Repository removal from the source catalog removes its published mirror URL after a
 successful worker pass, but keeps local data. During `sync-loop`, discovery refreshes
 accounts, password hashes, groups and repository/path access rules independently of

@@ -39,10 +39,18 @@ try:
         write('auth/authz', '[Example:/]\nalice = rw\n* =\n')
         fixture = '''set -eu
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=Offline-Test-CA -keyout /fixture/ca.key -out /fixture/ca.crt
+printf 'basicConstraints=critical,CA:TRUE,pathlen:1\\nkeyUsage=critical,keyCertSign,cRLSign\\n' > /fixture/ca-extensions
+openssl req -new -newkey rsa:2048 -nodes -subj /CN=Intermediate-One -keyout /fixture/intermediate1.key -out /fixture/intermediate1.csr
+openssl x509 -req -in /fixture/intermediate1.csr -CA /fixture/ca.crt -CAkey /fixture/ca.key -set_serial 10 -days 2 -extfile /fixture/ca-extensions -out /fixture/intermediate1.crt
+printf 'basicConstraints=critical,CA:TRUE,pathlen:0\\nkeyUsage=critical,keyCertSign,cRLSign\\n' > /fixture/ca-extensions
+openssl req -new -newkey rsa:2048 -nodes -subj /CN=Intermediate-Two -keyout /fixture/intermediate2.key -out /fixture/intermediate2.csr
+openssl x509 -req -in /fixture/intermediate2.csr -CA /fixture/intermediate1.crt -CAkey /fixture/intermediate1.key -set_serial 11 -days 2 -extfile /fixture/ca-extensions -out /fixture/intermediate2.crt
 openssl req -new -newkey rsa:2048 -nodes -subj /CN=127.0.0.1 -keyout /fixture/server.key -out /fixture/server.csr
 printf 'subjectAltName=IP:127.0.0.1,DNS:https-gateway\\nextendedKeyUsage=serverAuth\\n' > /fixture/extensions
-openssl x509 -req -in /fixture/server.csr -CA /fixture/ca.crt -CAkey /fixture/ca.key -set_serial 1 -days 2 -extfile /fixture/extensions -out /fixture/first.pem
-openssl x509 -req -in /fixture/server.csr -CA /fixture/ca.crt -CAkey /fixture/ca.key -set_serial 2 -days 2 -extfile /fixture/extensions -out /fixture/second.pem
+openssl x509 -req -in /fixture/server.csr -CA /fixture/intermediate2.crt -CAkey /fixture/intermediate2.key -set_serial 1 -days 2 -extfile /fixture/extensions -out /fixture/first.pem
+openssl x509 -req -in /fixture/server.csr -CA /fixture/intermediate2.crt -CAkey /fixture/intermediate2.key -set_serial 2 -days 2 -extfile /fixture/extensions -out /fixture/second.pem
+cat /fixture/intermediate2.crt /fixture/intermediate1.crt >> /fixture/first.pem
+cat /fixture/intermediate2.crt /fixture/intermediate1.crt >> /fixture/second.pem
 '''
         call('run', '--rm', '--entrypoint', '/bin/sh', '-v', str(root) + ':/fixture', TLS, '-c', fixture)
         fixture = '''set -eu
