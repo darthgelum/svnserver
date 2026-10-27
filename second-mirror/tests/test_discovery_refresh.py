@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 import urllib.error
 import sys
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import auto
@@ -42,7 +43,7 @@ class DiscoveryRefreshTests(unittest.TestCase):
                     patch.object(auto, 'sync_passes', side_effect=blocked_passes), \
                     patch.dict(auto.os.environ, {'DISCOVERY_INTERVAL_SECONDS': '1',
                                                  'REQUIRE_SEED_ADOPTION': '0'}):
-                self.assertEqual(auto.sync(object(), 'sync-loop'), 0)
+                self.assertEqual(auto.sync(SimpleNamespace(event=lambda *args: None), 'sync-loop'), 0)
             self.assertGreaterEqual(len(calls), 3)
             self.assertNotEqual(calls[0], calls[1])
             self.assertTrue(json.loads((data / 'status/discovery.json').read_text())['ok'])
@@ -55,7 +56,7 @@ class DiscoveryRefreshTests(unittest.TestCase):
             with patch.object(auto, 'DATA', data), \
                     patch.object(auto, 'discover', side_effect=error), \
                     contextlib.redirect_stdout(output):
-                self.assertFalse(auto.refresh_discovery(object()))
+                self.assertFalse(auto.refresh_discovery(SimpleNamespace(event=lambda *args: None)))
             state = (data / 'status/discovery.json').read_text()
             self.assertIn('HTTP 401', output.getvalue())
             self.assertNotIn('hidden-url', output.getvalue() + state)
@@ -65,6 +66,7 @@ class DiscoveryRefreshTests(unittest.TestCase):
         with patch.object(auto, 'refresh_discovery'), \
                 patch.object(auto, 'sync_passes', return_value=0), \
                 patch.object(auto.threading, 'Thread') as thread, \
+                patch.object(auto.telemetry, 'heartbeat'), \
                 patch.dict(auto.os.environ, {'REQUIRE_SEED_ADOPTION': '0'}):
             self.assertEqual(auto.sync(object(), 'sync-once'), 0)
             thread.assert_not_called()

@@ -4,3 +4,10 @@
 !write-guard
 !auto.py
 !discovery.cgi
+!worker.py
+!telemetry.py
+!dashboard.py
+!status.cgi
+!log-errors
+!web/
+!web/**

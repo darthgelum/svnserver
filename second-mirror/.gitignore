@@ -8,3 +8,5 @@ auth/*
 !auth/.gitkeep
 data/
 tls-data/
+__pycache__/
+tests/__pycache__/

@@ -22,6 +22,12 @@ try:
                 and (path / 'format').is_file() and (path / 'db').is_dir()):
             repos.append({'name': path.name, 'path': prefix + '/' + path.name,
                           'source_path': '/svn-mirror-source/' + path.name})
+            try:
+                repos[-1]['head'] = int(subprocess.check_output(
+                    ['svnlook', 'youngest', str(path)], text=True,
+                    stderr=subprocess.DEVNULL, timeout=5).strip())
+            except (OSError, ValueError, subprocess.SubprocessError):
+                repos[-1]['head'] = None
     stage = 'read-svn-version'
     response = {'repositories': repos,
                 'lock_metadata_mode': 'master-skelta-v1',

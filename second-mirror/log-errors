@@ -1,0 +1,15 @@
+#!/usr/bin/python3
+"""Tee Apache errors to container stderr and a bounded administrator log."""
+from pathlib import Path
+import os
+import sys
+
+path = Path('/data/status/apache-errors.log')
+for line in sys.stdin:
+    sys.stderr.write(line)
+    sys.stderr.flush()
+    if path.exists() and path.stat().st_size > 2 * 1024 * 1024:
+        path.replace(path.with_suffix('.log.1'))
+    with path.open('a') as output:
+        os.fchmod(output.fileno(), 0o640)
+        output.write(line)

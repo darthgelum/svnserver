@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Second mirror · Состояние SVN</title><link rel="stylesheet" href="style.css"></head><body>
+<div id="mirror-status" class="sm-app">
+  <aside class="sm-nav"><div class="sm-brand"><span class="sm-mark">sm</span><div>Second mirror<small>SVN OPERATIONS</small></div></div>
+    <div class="sm-node"><span class="sm-dot"></span> Локальное зеркало<small id="sm-host">—</small></div>
+    <nav aria-label="Разделы"><button class="sm-navitem active" data-view="overview">Обзор <span>01</span></button><button class="sm-navitem" data-view="users">Пользователи <span id="sm-user-count">—</span></button><button class="sm-navitem" data-view="logs">Журнал событий <span>↗</span></button><button class="sm-navitem" data-view="connection">Соединение <span>↔</span></button></nav>
+    <div class="sm-navfoot">Один главный сервер.<br>Локальные файлы. Общие блокировки.<hr><span id="sm-viewer">Только просмотр</span></div>
+  </aside>
+  <main class="sm-main">
+    <header class="sm-top"><div class="sm-breadcrumb">Инфраструктура <span>/</span> SVN mirror</div><div class="sm-actions"><span id="sm-demo" class="sm-tag" hidden>Демонстрация</span><span id="sm-updated">Подключение…</span><button id="sm-refresh" class="sm-button">Обновить ↻</button></div></header>
+    <div id="sm-notice" role="alert" class="sm-notice" hidden></div>
+    <section class="sm-heading"><div><div class="sm-eyebrow">SECOND MIRROR / ОПЕРАЦИОННОЕ СОСТОЯНИЕ</div><h1 id="sm-title">Всё зеркало на одном экране.</h1><p>Синхронизация, доступ и диагностика — без подключения по SSH.</p></div><div id="sm-link-badge" class="sm-badge">Проверяем соединение</div></section>
+    <div class="sm-summary" id="sm-summary"></div>
+    <section id="sm-overview" class="sm-view">
+      <div id="sm-transfer" class="sm-transfer"></div>
+      <section class="sm-panel"><div class="sm-panelhead"><div><h2>Репозитории</h2><p id="sm-repo-summary">Ожидаем данные</p></div><label class="sm-search">Поиск <input id="sm-search" type="search" placeholder="Название репозитория" autocomplete="off"></label></div>
+        <div class="sm-filterbar"><div class="sm-filters"><button class="sm-filter active" data-filter="all" aria-pressed="true">Все</button><button class="sm-filter" data-filter="attention" aria-pressed="false">Требуют внимания</button><button class="sm-filter" data-filter="syncing" aria-pressed="false">В работе</button></div><span>Прогресс — по ревизиям, не по объёму файлов</span></div>
+        <div class="sm-tablewrap"><table class="sm-table"><thead><tr><th>Репозиторий / URL</th><th>Состояние</th><th>Локально / главный</th><th>Отставание</th><th>Последний успех</th><th><span class="sm-sr">Действия</span></th></tr></thead><tbody id="sm-repositories"></tbody></table></div>
+      </section>
+      <section id="sm-detail" class="sm-panel sm-detail" hidden></section>
+      <section class="sm-panel sm-recent"><div class="sm-panelhead"><h2>Последние события</h2><button class="sm-button sm-quiet" data-open-logs>Весь журнал →</button></div><div id="sm-recent-events"></div></section>
+    </section>
+    <section id="sm-users" class="sm-view sm-panel" hidden><div class="sm-panelhead"><div><h2>SVN-аккаунты и группы</h2><p id="sm-auth-time"></p></div><span class="sm-badge">Из USVN главного сервера</span></div><p class="sm-sectionnote">Это известные зеркалу аккаунты, а не список активных сеансов. Пароли и их хеши не отображаются.</p><div class="sm-tablewrap"><table class="sm-table"><thead><tr><th>Логин</th><th>Группы SVN</th><th>Источник</th></tr></thead><tbody id="sm-users-table"></tbody></table></div></section>
+    <section id="sm-logs" class="sm-view sm-panel" hidden><div class="sm-panelhead"><div><h2>Журнал событий</h2><p>Последние записи worker и ошибки Apache. История ограничена по размеру.</p></div><button id="sm-download" class="sm-button">Скачать журнал</button></div><div class="sm-logfilters"><label>Уровень <select id="sm-log-level"><option value="all">Все события</option><option value="error">Ошибки</option><option value="warning">Восстановление</option></select></label><label>Репозиторий <select id="sm-log-repo"><option value="all">Все репозитории</option></select></label></div><pre id="sm-log-output" class="sm-terminal"></pre><details class="sm-apache"><summary>Ошибки Apache / TLS / авторизации</summary><pre id="sm-apache-output" class="sm-terminal"></pre></details></section>
+    <section id="sm-connection" class="sm-view sm-panel" hidden><div class="sm-panelhead"><h2>Соединение и службы</h2></div><div id="sm-connection-details" class="sm-connectiongrid"></div><div id="sm-demo-controls" class="sm-demo-controls" hidden><button id="sm-offline" class="sm-button">Смоделировать обрыв связи</button><button id="sm-advance" class="sm-button">Продвинуть передачу</button></div></section>
+    <footer class="sm-footer"><span>Автообновление · каждые 5 секунд</span><span>SVN write-through mirror · Только просмотр</span></footer>
+    <div id="sm-toast" class="sm-toast" role="status" aria-live="polite" hidden></div>
+  </main>
+</div><script src="app.js"></script></body></html>

@@ -15,6 +15,7 @@ import time
 import threading
 import urllib.request
 import urllib.error
+import telemetry
 from urllib.parse import urlsplit
 
 DATA = Path('/data')
@@ -132,7 +133,7 @@ def discover(app):
     version = document['master_version']
     if not re.fullmatch(r'\d+\.\d+\.\d+', version):
         raise ValueError('Invalid discovered master_version')
-    repos, names, prefix = [], set(), None
+    repos, names, prefix, heads = [], set(), None, {}
     if not isinstance(document['repositories'], list):
         raise ValueError('Invalid repository catalog')
     for item in document['repositories']:
@@ -140,6 +141,9 @@ def discover(app):
         if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', name) or name in names:
             raise ValueError('Invalid or duplicate discovered repository name')
         names.add(name)
+        head = item.get('head')
+        if isinstance(head, int) and not isinstance(head, bool) and head >= 0:
+            heads[name] = head
         path = item['path']
         this_prefix = path.rsplit('/', 1)[0]
         valid_prefix(this_prefix)
@@ -176,7 +180,9 @@ def discover(app):
             for obsolete in sorted(root.glob('generation-*'))[:-2]:
                 shutil.rmtree(obsolete)
     atomic_json(DATA / 'status' / 'catalog.json', repos)
-    atomic_json(DATA / 'status' / 'discovery.json', {'ok': True, 'checked_at': time.time(), 'repositories': len(repos)})
+    atomic_json(DATA / 'status' / 'master-heads.json', {'checked_at': time.time(), 'revisions': heads})
+    atomic_json(DATA / 'status' / 'discovery.json', {'ok': True, 'checked_at': time.time(),
+                'last_success_at': time.time(), 'repositories': len(repos)})
     return repos
 
 
@@ -340,14 +346,19 @@ def refresh_discovery(app):
         if isinstance(exc, urllib.error.HTTPError):
             message += ' HTTP ' + str(exc.code)
         print(message, flush=True)
+        previous = read_json(DATA / 'status' / 'discovery.json', {})
+        if previous.get('ok') is not False:
+            app.event(None, message, 'error')
         atomic_json(DATA / 'status' / 'discovery.json',
-                    {'ok': False, 'checked_at': time.time(), 'error': message})
+                    {'ok': False, 'checked_at': time.time(), 'error': message,
+                     'last_success_at': previous.get('last_success_at')})
         return False
 
 
 def discovery_loop(app, stop):
     interval = max(1, int(os.getenv('DISCOVERY_INTERVAL_SECONDS', '30')))
     while not stop.wait(interval):
+        telemetry.heartbeat(DATA, state='running')
         refresh_discovery(app)
 
 
@@ -363,11 +374,13 @@ def sync(app, command):
         thread = threading.Thread(target=discovery_loop, args=(app, stop), daemon=True)
         thread.start()
     try:
+        telemetry.heartbeat(DATA, state='running')
         return sync_passes(app, command)
     finally:
         stop.set()
         if thread is not None:
             thread.join(timeout=35)
+        telemetry.heartbeat(DATA, state='stopped', current_repository=None, phase=None)
 
 
 def sync_passes(app, command):

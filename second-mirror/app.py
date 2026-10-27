@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Independent HTTP SVN mirror; never imports or edits the USVN installation."""
 import contextlib
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -14,26 +13,42 @@ from urllib.parse import urlsplit
 import urllib.request
 import xml.etree.ElementTree as ET
 import auto
+import signal
+import worker
+import telemetry
 
 DATA = Path('/data')
 UID = 10001
 SECRETS = {}
+GUARD_FILE = Path(__file__).with_name('write-guard')
+
+
+def redact(message):
+    for secret in SECRETS.values():
+        if secret.get('password'):
+            message = message.replace(secret['password'], '[redacted]')
+    return message
+
+
+def event(repo, message, level='info'):
+    safe = redact(str(message))
+    telemetry.record(DATA, safe, repo['name'] if repo else None, level)
+    print((repo['name'] + ': ' if repo else '') + safe, flush=True)
 
 
 def run(args, **kwargs):
     try:
         result = subprocess.run(args, text=True, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE,
-                                timeout=int(os.getenv('SYNC_TIMEOUT_SECONDS', '21600')), **kwargs)
+                                timeout=kwargs.pop('timeout', int(os.getenv('SYNC_TIMEOUT_SECONDS', '21600'))),
+                                pass_fds=worker.descriptors(), **kwargs)
     except subprocess.TimeoutExpired:
         # TimeoutExpired.__str__ includes argv, which can include a password.
         raise RuntimeError(f'{args[0]} timed out; check SYNC_TIMEOUT_SECONDS') from None
     if result.returncode:
         # Do not print command arguments: svnsync source passwords are argv values.
         message = result.stderr.strip()
-        for secret in SECRETS.values():
-            if secret.get('password'):
-                message = message.replace(secret['password'], '[redacted]')
+        message = redact(message)
         raise RuntimeError(f'{args[0]} failed: {message}')
     return result.stdout.strip()
 
@@ -109,14 +124,20 @@ def drop_worker_identity():
 @contextlib.contextmanager
 def worker_lock():
     # Every worker/admin operation uses the same OS lock, including --run containers.
-    with (DATA / 'status' / 'worker.lock').open('a') as handle:
-        if os.geteuid() == 0:
-            os.fchown(handle.fileno(), UID, UID)
-            os.fchmod(handle.fileno(), 0o660)
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise RuntimeError('Another sync/admin process is running; stop sync first')
+    with worker.exclusive(DATA / 'status' / 'worker.lock',
+                          'Another sync/admin process is running; stop sync first', owner=UID):
+        yield
+
+
+def repository_lock_path(repo):
+    return repo_path(repo) / 'locks' / 'svn-mirror-worker.lock'
+
+
+@contextlib.contextmanager
+def repository_lock(repo):
+    worker.require_lock(DATA / 'status' / 'worker.lock')
+    with worker.exclusive(repository_lock_path(repo),
+                          repo['name'] + ': another writer owns the repository OS lock'):
         yield
 
 
@@ -131,7 +152,8 @@ def source_auth(repo, sync=False):
 
 def source_info(repo):
     source_url = repo.get('source_url', repo['master_url'])
-    doc = ET.fromstring(run(['svn', 'info', '--xml', source_url, *source_auth(repo)]))
+    doc = ET.fromstring(run(['svn', 'info', '--xml', source_url, *source_auth(repo)],
+                           timeout=int(os.getenv('SYNC_METADATA_TIMEOUT_SECONDS', '120'))))
     entry = doc.find('entry')
     if entry.findtext('repository/root') != source_url:
         raise RuntimeError('master_url must point to a repository ROOT, not trunk or a subdirectory')
@@ -149,7 +171,7 @@ def prop(repo, name):
 def guards(repo):
     for hook in ('pre-commit', 'pre-revprop-change', 'pre-lock', 'pre-unlock'):
         target = repo_path(repo) / 'hooks' / hook
-        shutil.copyfile('/opt/svnmirror/write-guard', target)
+        shutil.copyfile(GUARD_FILE, target)
         target.chmod(0o750)
 
 
@@ -196,6 +218,76 @@ def initialize(repo, seed=False, verified_seed=False):
 
 
 def sync_one(repo, full_props=False):
+    try:
+        with repository_lock(repo):
+            return sync_one_locked(repo, full_props)
+    except Exception as exc:
+        message = redact(str(exc))
+        auto.atomic_json(DATA / 'status' / (repo['name'] + '.json'),
+                         {'ok': False, 'checked_at': time.time(), 'error': message})
+        event(repo, message, 'error')
+        return False
+
+
+def recover_replication_lock(repo):
+    worker.require_lock(DATA / 'status' / 'worker.lock')
+    worker.require_lock(repository_lock_path(repo))
+    if prop(repo, 'svn:sync-from-url') != repo.get('source_url', repo['master_url']):
+        raise RuntimeError('Refusing recovery: mirror source differs')
+    if prop(repo, 'svn:sync-from-uuid') != run(['svnlook', 'uuid', str(repo_path(repo))]):
+        raise RuntimeError('Refusing recovery: mirror UUID differs')
+    expected = GUARD_FILE.read_bytes()
+    for name in ('pre-commit', 'pre-revprop-change', 'pre-lock', 'pre-unlock'):
+        if (repo_path(repo) / 'hooks' / name).read_bytes() != expected:
+            raise RuntimeError('Refusing automatic recovery: mirror write guard differs')
+    # Read using the destination RA client and verify the mutation through the
+    # same API. Preserve currently-copying and all other recovery checkpoints.
+    def properties():
+        xml = run(['svn', 'proplist', '--revprop', '-r', '0', '--xml', local_url(repo)])
+        return {p.attrib['name']: p.text for p in ET.fromstring(xml).iter('property')}
+    values = properties()
+    if 'svn:sync-lock' not in values:
+        return
+    auto.atomic_json(DATA / 'status' / (repo['name'] + '-last-recovery.json'),
+                     {'checked_at': time.time(), 'old_lock': values['svn:sync-lock'],
+                      'reason': 'exclusive worker and repository OS locks acquired'})
+    run(['svn', 'propdel', '--revprop', '-r', '0', 'svn:sync-lock', local_url(repo)])
+    if 'svn:sync-lock' in properties():
+        raise RuntimeError('Replication lock removal failed verification')
+    event(repo, 'Recovered stale replication lock; interrupted revision checkpoint preserved', 'warning')
+
+
+def transfer(repo, operation, head):
+    name = repo['name']
+    progress_path = DATA / 'status' / (name + '-progress.json')
+    state = {'phase': operation, 'started_at': time.time(), 'master_revision': head}
+    def report(pid, elapsed, idle, activity):
+        state.update({'state': 'running', 'pid': pid, 'checked_at': time.time(),
+                      'elapsed_seconds': elapsed, 'idle_seconds': idle,
+                      'local_revision': int(run(['svnlook', 'youngest', str(repo_path(repo))])),
+                      'last_merged_revision': prop(repo, 'svn:sync-last-merged-rev'),
+                      'copying_revision': prop(repo, 'svn:sync-currently-copying')})
+        state['transaction_bytes'] = sum(item[1] for item in activity[2])
+        telemetry.heartbeat(DATA, state='running', current_repository=name, phase=operation)
+        auto.atomic_json(progress_path, state)
+        event(repo, f'{operation}; local=r{state["local_revision"]}, '
+              f'copying={state["copying_revision"] or "none"}, target=r{head}; '
+              f'elapsed={elapsed}s idle={idle}s')
+    try:
+        worker.transfer(['svnsync', operation, local_url(repo), *source_auth(repo, sync=True)],
+                        repo_path(repo), report,
+                        lambda line: event(repo, line), redact)
+        state['state'] = 'completed'
+    except BaseException:
+        state['state'] = 'interrupted'
+        raise
+    finally:
+        state['checked_at'] = time.time()
+        auto.atomic_json(progress_path, state)
+        telemetry.heartbeat(DATA, current_repository=None, phase=None)
+
+
+def sync_one_locked(repo, full_props=False):
     name = repo['name']
     try:
         if prop(repo, 'svn:sync-from-url') != repo.get('source_url', repo['master_url']):
@@ -203,13 +295,17 @@ def sync_one(repo, full_props=False):
         source_uuid, head = source_info(repo)
         if run(['svnlook', 'uuid', str(repo_path(repo))]) != source_uuid:
             raise RuntimeError('Source UUID changed; refusing synchronization')
-        run(['svnsync', 'synchronize', local_url(repo), *source_auth(repo, sync=True)])
+        if int(run(['svnlook', 'youngest', str(repo_path(repo))])) > head:
+            raise RuntimeError('Mirror history is ahead of source; refusing automatic recovery/synchronization')
+        recover_replication_lock(repo)
+        transfer(repo, 'synchronize', head)
         if full_props:
-            run(['svnsync', 'copy-revprops', local_url(repo), *source_auth(repo, sync=True)])
+            recover_replication_lock(repo)
+            transfer(repo, 'copy-revprops', head)
         local = int(run(['svnlook', 'youngest', str(repo_path(repo))]))
         merged = int(prop(repo, 'svn:sync-last-merged-rev'))
         _, head = source_info(repo)
-        state = {'ok': True, 'checked_at': time.time(), 'local_revision': local,
+        state = {'ok': True, 'checked_at': time.time(), 'last_success_at': time.time(), 'local_revision': local,
                  'last_merged_revision': merged, 'master_revision': head,
                  'lag_revisions': head - merged}
         if full_props:
@@ -218,10 +314,11 @@ def sync_one(repo, full_props=False):
             old = DATA / 'status' / f'{name}.json'
             if old.exists():
                 state['revprops_checked_at'] = json.loads(old.read_text()).get('revprops_checked_at', 0)
-        print(f'{name}: r{merged}/{head}; lag={head - merged}', flush=True)
+        event(repo, f'r{merged}/{head}; lag={head - merged}')
     except Exception as exc:
-        state = {'ok': False, 'checked_at': time.time(), 'error': str(exc)}
-        print(f'{name}: {exc}', file=sys.stderr, flush=True)
+        state = auto.read_json(DATA / 'status' / f'{name}.json', {})
+        state.update({'ok': False, 'checked_at': time.time(), 'error': redact(str(exc))})
+        event(repo, str(exc), 'error')
     target = DATA / 'status' / f'{name}.json'
     temporary = target.with_suffix('.tmp')
     temporary.write_text(json.dumps(state) + '\n')
@@ -322,8 +419,48 @@ Timeout 21600
     <Location /healthz>
         Require all granted
     </Location>'''
-    document = header + '\n<VirtualHost *:80>\n    RewriteEngine On\n    ' + '\n    '.join(metadata) + '\n    ' + health + '\n    ' + '\n    '.join(blocks) + '''
-    ErrorLog /proc/self/fd/2
+    status_location = ''
+    if not master:
+        users = [user for user in re.split(r'[,\s]+', os.getenv('STATUS_USERS', 'svnmirror')) if user]
+        if not users or any(not re.fullmatch(r'[A-Za-z0-9_.@-]+', user) for user in users):
+            raise ValueError('STATUS_USERS must contain comma-separated SVN administrator logins')
+        status_dir = DATA / 'status'
+        status_dir.mkdir(parents=True, exist_ok=True)
+        if os.geteuid() == 0:
+            os.chown(status_dir, UID, UID)
+            status_dir.chmod(0o2770)
+        header += 'ErrorLog "|/opt/svnmirror/log-errors"\n'
+        status_location = f'''ScriptAlias /svn-mirror-status/api /opt/svnmirror/status.cgi
+    Alias /svn-mirror-status/ /opt/svnmirror/web/
+    RedirectMatch 302 ^/svn-mirror-status$ /svn-mirror-status/
+    <Directory /opt/svnmirror>
+        Options +ExecCGI -Indexes
+        AllowOverride None
+        Require all denied
+    </Directory>
+    <Directory /opt/svnmirror/web>
+        Options -Indexes
+        AllowOverride None
+        DirectoryIndex index.html
+        Require all granted
+    </Directory>
+    <Location /svn-mirror-status>
+        AuthType Basic
+        AuthName "SVN mirror administration"
+        AuthzSendForbiddenOnFailure On
+        AuthUserFile {auth_root}/htpasswd
+        SetEnv SVNMIRROR_STATUS_USERS "{' '.join(users)}"
+        SetEnv SVNMIRROR_AUTH_ROOT "{auth_root}"
+        Header always set Cache-Control "no-store"
+        Header always set X-Content-Type-Options "nosniff"
+        <RequireAll>
+            Require user {' '.join(users)}
+            Require method GET HEAD
+        </RequireAll>
+    </Location>'''
+    else:
+        header += 'ErrorLog /proc/self/fd/2\n'
+    document = header + '\n<VirtualHost *:80>\n    RewriteEngine On\n    ' + '\n    '.join(metadata) + '\n    ' + health + '\n    ' + status_location + '\n    ' + '\n    '.join(blocks) + '''
     CustomLog /proc/self/fd/1 combined
 </VirtualHost>
 '''
@@ -332,7 +469,6 @@ Timeout 21600
     <Location />
         Require all granted
     </Location>
-    ErrorLog /proc/self/fd/2
     CustomLog /proc/self/fd/1 combined
 </VirtualHost>
 '''
@@ -348,6 +484,8 @@ def main():
     automatic = auto.settings().get('auto_discover', False)
     repos = config()
     if command in ('serve', 'render'):
+        if command == 'serve':
+            worker.clean_apache_runtime()
         if automatic and os.getenv('ROLE', 'mirror') != 'master':
             repos = auto.published()
         render(repos)
@@ -361,6 +499,8 @@ def main():
     # Acquire and normalize an existing root-owned lock BEFORE dropping UID.
     # Never unlink it: another container might hold a flock on the same inode.
     prepare_worker(drop=False)
+    signal.signal(signal.SIGTERM, worker.stop)
+    signal.signal(signal.SIGINT, worker.stop)
     with worker_lock():
         if command != 'adopt-all':
             drop_worker_identity()
@@ -392,8 +532,9 @@ def main():
             if len(sys.argv) != 3:
                 raise ValueError('Usage: recover REPO_NAME')
             repo = next(r for r in repos if r['name'] == sys.argv[2])
-            if prop(repo, 'svn:sync-lock') is not None:
-                run(['svn', 'propdel', '--revprop', '-r', '0', 'svn:sync-lock', local_url(repo)])
+            with repository_lock(repo):
+                recover_replication_lock(repo)
+            print(repo['name'] + ': verified — replication lock is absent', flush=True)
             return 0
         if command not in ('sync-once', 'sync-loop', 'copy-revprops'):
             raise ValueError('Unknown command')
@@ -412,6 +553,10 @@ def main():
 if __name__ == '__main__':
     try:
         sys.exit(main())
+    except worker.Stopped:
+        telemetry.heartbeat(DATA, state='stopped', current_repository=None, phase=None)
+        print('Worker stopped; committed revisions retained, next start will recover replication locks', flush=True)
+        sys.exit(0)
     except Exception as error:
         print(str(error), file=sys.stderr)
         sys.exit(1)

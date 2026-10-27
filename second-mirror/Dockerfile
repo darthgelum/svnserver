@@ -13,8 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && a2enconf servername
 COPY app.py /opt/svnmirror/app.py
 COPY write-guard /opt/svnmirror/write-guard
-COPY auto.py discovery.cgi /opt/svnmirror/
-RUN chmod 755 /opt/svnmirror/write-guard /opt/svnmirror/discovery.cgi
+COPY auto.py worker.py telemetry.py dashboard.py discovery.cgi status.cgi log-errors /opt/svnmirror/
+COPY web/ /opt/svnmirror/web/
+RUN chmod 755 /opt/svnmirror/write-guard /opt/svnmirror/discovery.cgi /opt/svnmirror/status.cgi /opt/svnmirror/log-errors
 EXPOSE 80 81
 ENTRYPOINT ["/usr/bin/tini", "--", "python3", "/opt/svnmirror/app.py"]
 CMD ["serve"]

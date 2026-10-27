@@ -241,9 +241,35 @@ use `up -d`. No configuration wizard or repeated adopt-all is needed for a resta
 
 For a manual sync pass, stop `sync` first, then run `run --rm sync sync-once` and
 restart it with `up -d sync`. A shared OS lock prevents concurrent worker/admin runs.
-If an interrupted operation left `svn:sync-lock`, stop all workers/manual operations,
-run `run --rm sync recover NAME`, then resume. This is a replication lock, not a
-user file lock. Do not use permanent lock stealing or disable locking.
+The worker now recovers a stale `svn:sync-lock` automatically before a transfer.
+It first holds both the shared worker OS lock and an additional lock inside the
+repository, checks its source identity and installed write guards, then removes
+and verifies only that replication property. `svn:sync-currently-copying` is kept
+for SVN's interrupted-revision recovery. OS locks are inherited by writer children:
+a surviving child prevents another worker from recovering its active lock even if
+its Python parent dies. This also protects deployments sharing a repository with
+different state directories, provided all writers use this worker version.
+
+Stop all legacy workers/manual SVN writers before upgrading. Never run a separate
+writer against the mirror or synchronize its live folders with file-sync software.
+The automation cannot coordinate with unmanaged tools that bypass its OS locks.
+Manual `run --rm sync recover NAME` remains available after stopping workers; it
+uses the same checks and explicitly reports successful verification. This is a
+replication lock, not a user file lock. No permanent lock stealing or disabled
+locking is used; master-side user file locks are not removed.
+
+History transfers stream redacted SVN output and report local/merged/copying
+revisions, transaction size, elapsed time and inactivity every 30 seconds. Active
+transfers have no total-duration cap by default, even if `SYNC_TIMEOUT_SECONDS`
+still contains the old 21600 value. An inactivity watchdog samples writer CPU/I/O
+and transaction file changes; after one hour without activity it stops the writer.
+The next pass automatically recovers and retries from committed revisions. A
+partially transferred, uncommitted revision may need to be transferred again;
+this does not repeat adoption or download all earlier history. Discovery/auth
+polling continues independently. Missing permissions, corruption or an unreachable
+source remain real errors and are shown rather than silently bypassed.
+Container startup also clears stale Apache PID/CGI socket artifacts only when no
+Apache process is alive; it never removes repository or worker lock files.
 
 Check free disk space, WAN reachability, TLS trust, source credentials and filesystem
 permissions when sync fails. Apache/discovery diagnostics on the main host:
@@ -273,6 +299,47 @@ The mirror never becomes an independent master. Back up the main server and save
 host-specific config, secrets, mirror state/adoption markers and a recovery plan.
 
 ## 4. Upgrades and existing deployments
+
+### Administrator status page
+
+Open `http://MIRROR_HOST:MIRROR_PORT/svn-mirror-status/` on the mirror's normal LAN
+port. No additional port is needed. Set `STATUS_USERS` in the mirror `.env` to a
+comma-separated allowlist of **existing SVN logins**, for example
+`STATUS_USERS=svnmirror,admin`. The default permits only `svnmirror`; do not give
+its replication password to ordinary users. Use a personal administrator account
+in the allowlist for routine operations. Recreate `mirror` after changing this
+setting. Authorization protects both static assets and the read-only JSON API.
+
+The page auto-refreshes every five seconds and shows:
+
+- Repository publication, local and master revisions, confirmed sync revision,
+  revision lag, last success/error and copying revision. URL buttons copy the
+  LAN URL and preserve the required `/svn/` prefix.
+- Current transaction size, elapsed/idle time, worker heartbeat, automatic recovery
+  events, source contact and free space on the repository filesystem. Revision
+  progress is **not a byte percentage or a remaining-time estimate**.
+- Known SVN account names and groups plus the latest successful auth check. This
+  is not a list of active sessions. Passwords, hashes and raw auth files are never
+  returned. USVN UI settings are not replicated.
+- Bounded worker history (three files of about 2 MiB each), recent Apache/TLS/auth
+  errors (two files of about 2 MiB each), repository/level filters and log download.
+  The page has no remote restart/recover or repository-write controls.
+
+Update/rebuild the main HTTP service too to export current repository HEADs in
+discovery. Older main images remain compatible; the page then labels the last
+master revision sampled by a worker, which can be old during a long transfer.
+Freshness timestamps are displayed. Cached successful checks do not prove current
+WAN availability. A busy first synchronization can correctly remain unhealthy.
+
+For an interactive mock without NAS access, run
+`python3 tests/render_status_mock.py /absolute/output/status-mock.html`.
+The resulting fragment contains clearly marked demonstration data and makes no
+network requests. Production `index.html` never loads the demo data.
+
+For a normal image upgrade, build first, stop legacy `sync` containers, then
+recreate `mirror` and `sync` using the existing project name and Compose overlays.
+Keep `.env`, secrets, repositories and state/adoption markers. No repeated
+`adopt-all`, history verification or manual lock removal is required.
 
 Update the main HTTP service **before** the mirrors. Preserve `.env`, configs,
 credentials and data. The main Compose file is now named `compose.master.yaml`.
@@ -334,7 +401,12 @@ mirror `.env` and credentials; do not overwrite a live setup with example files.
 | `BIND_IP`, `MIRROR_PORT`, `LIVE_PORT` | Mirror client interface and ports; ports default to 18080/18081 |
 | `SYNC_INTERVAL_SECONDS` | Delay between full worker passes; default 30 seconds |
 | `DISCOVERY_INTERVAL_SECONDS` | Delay between catalog/auth refreshes during `sync-loop`, independent of history transfers; default 30 seconds |
-| `SYNC_TIMEOUT_SECONDS` | Per-SVN-process timeout; default 21600 seconds |
+| `SYNC_TIMEOUT_SECONDS` | General command/adoption timeout; default 21600 seconds; does not cap `synchronize`/`copy-revprops` |
+| `SYNC_TRANSFER_TIMEOUT_SECONDS` | Optional total history-transfer cap; default 0 (unlimited while active) |
+| `SYNC_IDLE_TIMEOUT_SECONDS` | Stop/retry a transfer with no output, CPU/I/O or transaction-file activity; default 3600 seconds |
+| `SYNC_PROGRESS_SECONDS` | Transfer progress/heartbeat interval; default 30 seconds |
+| `SYNC_METADATA_TIMEOUT_SECONDS` | Source identity/HEAD query timeout; default 120 seconds |
+| `STATUS_USERS` | Comma-separated SVN logins allowed into the status page/API; default `svnmirror` |
 | `MAX_SYNC_AGE_SECONDS`, `MAX_LAG_REVISIONS` | Health thresholds; auto Compose defaults to 1800 seconds and zero lag |
 | `REVPROP_RESCAN_SECONDS` | Periodic old revision-property reconciliation; auto Compose default 86400 seconds |
 | `COMPOSE_PROJECT_NAME` | Persistent deployment identity, particularly important during upgrades |
@@ -385,3 +457,16 @@ authoritative locks, stolen-token handling, offline failure, revprops and TLS.
 Set `SVN_CLIENT_EXE` to a local SVN executable to add native-client checks to
 `integration.py`; this has been exercised with Unreal's bundled SVN 1.9.5.
 TLS tests use a local CA and a fake Certbot, not production certificate issuance.
+
+Additional Linux checks run with Python 3 and native SVN 1.14 tools:
+
+```sh
+python3 -m unittest discover -s tests -p 'test_*.py'
+```
+
+They exercise actual SVN interrupted-revision recovery, competing/orphaned writer
+locks, idle/stop handling, account/auth refresh, snapshot redaction and real Apache
+authorization/CGI. The HTTP test skips when Apache is absent; set `APACHE_BINARY`,
+`APACHE_MODULE_DIR` and `HTPASSWD_BINARY` for a private runtime. `node
+tests/status_ui.cjs` adds Playwright browser checks (set `PLAYWRIGHT_MODULE` and
+optionally `STATUS_TEST_BROWSER` when dependencies are outside normal lookup).

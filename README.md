@@ -226,6 +226,10 @@ project identity. Do not rerun the installer or overwrite `.env` to restart serv
 | `volume/` | Default host persistence directories; runtime data is not source code |
 | `second-mirror/` | Optional HTTP master endpoint, automatic mirror, TLS and tests |
 
+The optional mirror includes guarded automatic replication-lock recovery, live
+transfer progress and an authenticated, read-only administrator status page. See
+[mirror operations and setup](second-mirror/README.md).
+
 The repository's Docker/addon code is covered by [LICENSE](LICENSE). Included USVN
 and bundled dependencies retain their respective licenses and copyright notices.
 The project builds on the original work by Markus Hilsenbeck and the USVN project.

@@ -1,0 +1,579 @@
+:root{
+  color-scheme:light dark;
+  --sm-bg:light-dark(#f4f6f7,#141c23);
+  --sm-surface:light-dark(#fff,#1e2932);
+  --sm-ink:light-dark(#172e3a,#e7edf1);
+  --sm-muted:light-dark(#657885,#a7b8c4);
+  --sm-line:light-dark(#e2e9ed,#344550);
+  --sm-nav:light-dark(#173340,#14232e);
+  --sm-navink:#ecf3f5;
+  --sm-accent:light-dark(#167b68,#56cab1);
+  --sm-accentbg:light-dark(#e6f4ef,#233e37);
+  --sm-warn:light-dark(#9b6716,#edc076);
+  --sm-warnbg:light-dark(#fff4de,#443b29);
+  --sm-red:light-dark(#b34040,#f09595);
+  --sm-redbg:light-dark(#fff0ee,#472b2d);
+  --sm-blue:light-dark(#376d9a,#95c7ee);
+  --sm-bluebg:light-dark(#eaf3fa,#263c4e)}
+  *{
+    box-sizing:border-box}
+    body{
+      margin:0;
+      background:var(--sm-bg);
+      color:var(--sm-ink)}
+      .sm-app{
+        font:14px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+        display:grid;
+        grid-template-columns:215px minmax(0,1fr);
+        min-height:100vh;
+        background:var(--sm-bg);
+        color:var(--sm-ink)}
+        .sm-app button,.sm-app input,.sm-app select{
+          font:inherit}
+          .sm-app button{
+            cursor:pointer}
+            .sm-app [hidden]{
+              display:none!important}
+              .sm-nav{
+                padding:32px 22px;
+                background:var(--sm-nav);
+                color:var(--sm-navink);
+                display:flex;
+                flex-direction:column;
+                gap:35px}
+                .sm-brand{
+                  display:flex;
+                  align-items:center;
+                  gap:11px;
+                  font-size:14px;
+                  font-weight:650}
+                  .sm-mark{
+                    width:35px;
+                    height:35px;
+                    background:var(--sm-accent);
+                    color:var(--sm-bg);
+                    border-radius:11px;
+                    text-align:center;
+                    line-height:35px;
+                    font-weight:800;
+                    font-size:20px}
+                    .sm-brand small{
+                      display:block;
+                      font-size:11px;
+                      letter-spacing:2px;
+                      opacity:.65;
+                      margin-top:2px}
+                      .sm-node{
+                        font-size:12px}
+                        .sm-node small{
+                          display:block;
+                          overflow-wrap:anywhere;
+                          margin:7px 0 0 13px;
+                          opacity:.65;
+                          font-size:11px}
+                          .sm-dot{
+                            display:inline-block;
+                            width:6px;
+                            height:6px;
+                            background:var(--sm-accent);
+                            border-radius:50%;
+                            margin-right:7px}
+                            .sm-nav nav{
+                              display:grid;
+                              gap:7px}
+                              .sm-navitem{
+                                border:0;
+                                border-radius:7px;
+                                background:transparent;
+                                color:inherit;
+                                text-align:left;
+                                padding:11px 10px;
+                                display:flex;
+                                justify-content:space-between;
+                                font-size:12px!important;
+                                opacity:.7}
+                                .sm-navitem.active{
+                                  background:color-mix(in srgb,var(--sm-navink) 12%,transparent);
+                                  opacity:1}
+                                  .sm-navitem span{
+                                    opacity:.55}
+                                    .sm-navfoot{
+                                      margin-top:auto;
+                                      font-size:11px;
+                                      opacity:.7;
+                                      line-height:1.9}
+                                      .sm-navfoot hr{
+                                        border:0;
+                                        border-top:1px solid color-mix(in srgb,var(--sm-navink) 20%,transparent);
+                                        margin:18px 0}
+                                        .sm-main{
+                                          min-width:0;
+                                          padding:0 32px 24px}
+                                          .sm-top{
+                                            display:flex;
+                                            justify-content:space-between;
+                                            align-items:center;
+                                            gap:12px;
+                                            border-bottom:1px solid var(--sm-line);
+                                            padding:22px 0}
+                                            .sm-breadcrumb{
+                                              font-size:11px;
+                                              color:var(--sm-muted)}
+                                              .sm-breadcrumb span{
+                                                margin:0 8px}
+                                                .sm-actions{
+                                                  display:flex;
+                                                  align-items:center;
+                                                  gap:12px;
+                                                  font-size:11px;
+                                                  color:var(--sm-muted);
+                                                  flex-wrap:wrap}
+                                                  .sm-button{
+                                                    background:var(--sm-surface);
+                                                    border:1px solid var(--sm-line);
+                                                    color:var(--sm-ink);
+                                                    border-radius:7px;
+                                                    padding:8px 12px;
+                                                    font-size:11px!important;
+                                                    white-space:nowrap}
+                                                    .sm-button:hover{
+                                                      border-color:var(--sm-accent)}
+                                                      .sm-quiet{
+                                                        border:0;
+                                                        background:transparent;
+                                                        color:var(--sm-accent)}
+                                                        .sm-heading{
+                                                          display:flex;
+                                                          justify-content:space-between;
+                                                          align-items:center;
+                                                          gap:18px;
+                                                          margin:33px 0 26px}
+                                                          .sm-eyebrow{
+                                                            font-size:11px;
+                                                            letter-spacing:1.7px;
+                                                            font-weight:650;
+                                                            color:var(--sm-muted)}
+                                                            .sm-heading h1{
+                                                              margin:9px 0 7px;
+                                                              font-size:clamp(22px,2.5vw,32px);
+                                                              line-height:1.2;
+                                                              letter-spacing:-1px;
+                                                              font-weight:650}
+                                                              .sm-heading p{
+                                                                font-size:12px;
+                                                                color:var(--sm-muted);
+                                                                margin:0}
+                                                                .sm-badge,.sm-tag{
+                                                                  display:inline-block;
+                                                                  font-size:11px;
+                                                                  line-height:1.5;
+                                                                  font-weight:600;
+                                                                  border-radius:5px;
+                                                                  background:var(--sm-accentbg);
+                                                                  color:var(--sm-accent);
+                                                                  padding:5px 8px;
+                                                                  white-space:nowrap}
+                                                                  .sm-badge.warning{
+                                                                    background:var(--sm-warnbg);
+                                                                    color:var(--sm-warn)}
+                                                                    .sm-badge.error{
+                                                                      background:var(--sm-redbg);
+                                                                      color:var(--sm-red)}
+                                                                      .sm-badge.syncing{
+                                                                        background:var(--sm-bluebg);
+                                                                        color:var(--sm-blue)}
+                                                                        .sm-badge.waiting{
+                                                                          background:var(--sm-bg);
+                                                                          color:var(--sm-muted)}
+                                                                          .sm-summary{
+                                                                            display:grid;
+                                                                            grid-template-columns:repeat(4,minmax(0,1fr));
+                                                                            gap:12px;
+                                                                            margin-bottom:20px}
+                                                                            .sm-stat{
+                                                                              background:var(--sm-surface);
+                                                                              border:1px solid var(--sm-line);
+                                                                              border-radius:10px;
+                                                                              padding:17px 18px}
+                                                                              .sm-stat-label{
+                                                                                font-size:11px;
+                                                                                color:var(--sm-muted)}
+                                                                                .sm-stat-value{
+                                                                                  display:block;
+                                                                                  font-size:28px;
+                                                                                  font-weight:650;
+                                                                                  letter-spacing:-1px;
+                                                                                  line-height:1.7;
+                                                                                  font-variant-numeric:tabular-nums}
+                                                                                  .sm-stat-sub{
+                                                                                    font-size:11px;
+                                                                                    color:var(--sm-muted)}
+                                                                                    .sm-stat.error .sm-stat-value{
+                                                                                      color:var(--sm-red)}
+                                                                                      .sm-transfer{
+                                                                                        background:var(--sm-surface);
+                                                                                        border:1px solid var(--sm-line);
+                                                                                        border-radius:10px;
+                                                                                        margin-bottom:22px;
+                                                                                        padding:19px 21px}
+                                                                                        .sm-transfer-top{
+                                                                                          display:flex;
+                                                                                          justify-content:space-between;
+                                                                                          align-items:start;
+                                                                                          gap:10px}
+                                                                                          .sm-transfer-title{
+                                                                                            font-size:13px;
+                                                                                            font-weight:650}
+                                                                                            .sm-transfer-meta{
+                                                                                              font-size:11px;
+                                                                                              color:var(--sm-muted);
+                                                                                              margin:5px 0 12px}
+                                                                                              .sm-progress{
+                                                                                                height:5px;
+                                                                                                border:0;
+                                                                                                border-radius:4px;
+                                                                                                background:var(--sm-bg);
+                                                                                                overflow:hidden;
+                                                                                                margin:8px 0}
+                                                                                                .sm-progress span{
+                                                                                                  display:block;
+                                                                                                  height:100%;
+                                                                                                  background:var(--sm-accent);
+                                                                                                  border-radius:4px}
+                                                                                                  .sm-progress-foot{
+                                                                                                    display:flex;
+                                                                                                    justify-content:space-between;
+                                                                                                    gap:10px;
+                                                                                                    font-size:11px;
+                                                                                                    color:var(--sm-muted)}
+                                                                                                    .sm-panel{
+                                                                                                      background:var(--sm-surface);
+                                                                                                      border:1px solid var(--sm-line);
+                                                                                                      border-radius:10px;
+                                                                                                      margin-bottom:20px;
+                                                                                                      overflow:hidden}
+                                                                                                      .sm-panelhead{
+                                                                                                        display:flex;
+                                                                                                        justify-content:space-between;
+                                                                                                        align-items:center;
+                                                                                                        gap:15px;
+                                                                                                        padding:20px 21px}
+                                                                                                        .sm-panel h2{
+                                                                                                          font-size:14px;
+                                                                                                          margin:0;
+                                                                                                          font-weight:650}
+                                                                                                          .sm-panelhead p{
+                                                                                                            margin:4px 0 0;
+                                                                                                            font-size:11px;
+                                                                                                            color:var(--sm-muted)}
+                                                                                                            .sm-search{
+                                                                                                              display:flex;
+                                                                                                              align-items:center;
+                                                                                                              gap:8px;
+                                                                                                              font-size:11px;
+                                                                                                              color:var(--sm-muted)}
+                                                                                                              .sm-search input{
+                                                                                                                background:var(--sm-bg);
+                                                                                                                border:1px solid var(--sm-line);
+                                                                                                                padding:8px 10px;
+                                                                                                                width:185px;
+                                                                                                                border-radius:6px;
+                                                                                                                color:var(--sm-ink);
+                                                                                                                font-size:11px}
+                                                                                                                .sm-filterbar{
+                                                                                                                  display:flex;
+                                                                                                                  justify-content:space-between;
+                                                                                                                  align-items:center;
+                                                                                                                  gap:10px;
+                                                                                                                  padding:0 21px 13px;
+                                                                                                                  font-size:11px;
+                                                                                                                  color:var(--sm-muted)}
+                                                                                                                  .sm-filters{
+                                                                                                                    display:flex;
+                                                                                                                    gap:4px;
+                                                                                                                    flex-wrap:wrap}
+                                                                                                                    .sm-filter{
+                                                                                                                      border:0;
+                                                                                                                      background:transparent;
+                                                                                                                      color:var(--sm-muted);
+                                                                                                                      border-radius:5px;
+                                                                                                                      padding:6px 9px;
+                                                                                                                      font-size:11px!important}
+                                                                                                                      .sm-filter.active{
+                                                                                                                        background:var(--sm-bg);
+                                                                                                                        color:var(--sm-ink);
+                                                                                                                        font-weight:650}
+                                                                                                                        .sm-tablewrap{
+                                                                                                                          position:relative;
+                                                                                                                          overflow-x:auto}
+                                                                                                                          .sm-table{
+                                                                                                                            border-collapse:collapse;
+                                                                                                                            width:100%;
+                                                                                                                            font-size:11px;
+                                                                                                                            text-align:left}
+                                                                                                                            .sm-table th{
+                                                                                                                              font-size:11px;
+                                                                                                                              letter-spacing:.4px;
+                                                                                                                              font-weight:600;
+                                                                                                                              color:var(--sm-muted);
+                                                                                                                              background:var(--sm-bg);
+                                                                                                                              padding:11px 15px;
+                                                                                                                              white-space:nowrap}
+                                                                                                                              .sm-table th:first-child,.sm-table td:first-child{
+                                                                                                                                padding-left:21px}
+                                                                                                                                .sm-table td{
+                                                                                                                                  border-top:1px solid var(--sm-line);
+                                                                                                                                  padding:13px 15px;
+                                                                                                                                  vertical-align:middle;
+                                                                                                                                  font-variant-numeric:tabular-nums}
+                                                                                                                                  .sm-table tr:hover td{
+                                                                                                                                    background:color-mix(in srgb,var(--sm-bg) 45%,var(--sm-surface))}
+                                                                                                                                    .sm-repo-name{
+                                                                                                                                      display:block;
+                                                                                                                                      border:0;
+                                                                                                                                      background:none;
+                                                                                                                                      color:var(--sm-ink);
+                                                                                                                                      font-weight:650;
+                                                                                                                                      font-size:12px!important;
+                                                                                                                                      padding:0;
+                                                                                                                                      text-align:left}
+                                                                                                                                      .sm-repo-url{
+                                                                                                                                        display:block;
+                                                                                                                                        font-size:11px;
+                                                                                                                                        color:var(--sm-muted);
+                                                                                                                                        margin-top:3px;
+                                                                                                                                        max-width:230px;
+                                                                                                                                        overflow-wrap:anywhere}
+                                                                                                                                        .sm-revision{
+                                                                                                                                          white-space:nowrap;
+                                                                                                                                          font-weight:600}
+                                                                                                                                          .sm-revision span{
+                                                                                                                                            color:var(--sm-muted);
+                                                                                                                                            font-weight:400}
+                                                                                                                                            .sm-copy{
+                                                                                                                                              background:transparent;
+                                                                                                                                              border:1px solid var(--sm-line);
+                                                                                                                                              border-radius:5px;
+                                                                                                                                              color:var(--sm-muted);
+                                                                                                                                              padding:5px 8px;
+                                                                                                                                              font-size:11px!important}
+                                                                                                                                              .sm-copy:hover{
+                                                                                                                                                color:var(--sm-accent);
+                                                                                                                                                border-color:var(--sm-accent)}
+                                                                                                                                                .sm-number-warn{
+                                                                                                                                                  color:var(--sm-warn);
+                                                                                                                                                  font-weight:650}
+                                                                                                                                                  .sm-detail{
+                                                                                                                                                    padding:20px}
+                                                                                                                                                    .sm-detail-head{
+                                                                                                                                                      display:flex;
+                                                                                                                                                      justify-content:space-between;
+                                                                                                                                                      align-items:center;
+                                                                                                                                                      margin-bottom:16px}
+                                                                                                                                                      .sm-detail-url{
+                                                                                                                                                        display:flex;
+                                                                                                                                                        gap:10px;
+                                                                                                                                                        align-items:center;
+                                                                                                                                                        justify-content:space-between;
+                                                                                                                                                        margin:10px 0}
+                                                                                                                                                        .sm-detail-url code{
+                                                                                                                                                          background:var(--sm-bg);
+                                                                                                                                                          padding:10px;
+                                                                                                                                                          border-radius:5px;
+                                                                                                                                                          overflow-wrap:anywhere;
+                                                                                                                                                          font-size:11px;
+                                                                                                                                                          min-width:0;
+                                                                                                                                                          flex:1}
+                                                                                                                                                          .sm-detail-grid{
+                                                                                                                                                            display:grid;
+                                                                                                                                                            grid-template-columns:repeat(3,minmax(0,1fr));
+                                                                                                                                                            gap:15px;
+                                                                                                                                                            margin-top:18px}
+                                                                                                                                                            .sm-detail-grid strong{
+                                                                                                                                                              display:block;
+                                                                                                                                                              font-size:13px;
+                                                                                                                                                              margin-top:5px}
+                                                                                                                                                              .sm-detail-grid span{
+                                                                                                                                                                font-size:11px;
+                                                                                                                                                                color:var(--sm-muted)}
+                                                                                                                                                                .sm-errorbox{
+                                                                                                                                                                  background:var(--sm-redbg);
+                                                                                                                                                                  color:var(--sm-red);
+                                                                                                                                                                  padding:12px;
+                                                                                                                                                                  border-radius:6px;
+                                                                                                                                                                  overflow-wrap:anywhere;
+                                                                                                                                                                  font-size:11px;
+                                                                                                                                                                  margin-top:15px}
+                                                                                                                                                                  .sm-event{
+                                                                                                                                                                    padding:12px 21px;
+                                                                                                                                                                    border-top:1px solid var(--sm-line);
+                                                                                                                                                                    display:grid;
+                                                                                                                                                                    grid-template-columns:68px 90px 1fr;
+                                                                                                                                                                    gap:12px;
+                                                                                                                                                                    font-size:11px}
+                                                                                                                                                                    .sm-event time{
+                                                                                                                                                                      color:var(--sm-muted);
+                                                                                                                                                                      font-size:11px}
+                                                                                                                                                                      .sm-event .warning{
+                                                                                                                                                                        color:var(--sm-warn)}
+                                                                                                                                                                        .sm-event .error{
+                                                                                                                                                                          color:var(--sm-red)}
+                                                                                                                                                                          .sm-event-message{
+                                                                                                                                                                            overflow-wrap:anywhere}
+                                                                                                                                                                            .sm-recent .sm-panelhead{
+                                                                                                                                                                              padding-bottom:15px}
+                                                                                                                                                                              .sm-logfilters{
+                                                                                                                                                                                display:flex;
+                                                                                                                                                                                gap:20px;
+                                                                                                                                                                                padding:0 21px 15px;
+                                                                                                                                                                                flex-wrap:wrap}
+                                                                                                                                                                                .sm-logfilters label{
+                                                                                                                                                                                  display:flex;
+                                                                                                                                                                                  gap:8px;
+                                                                                                                                                                                  align-items:center;
+                                                                                                                                                                                  font-size:11px;
+                                                                                                                                                                                  color:var(--sm-muted)}
+                                                                                                                                                                                  .sm-logfilters select{
+                                                                                                                                                                                    border:1px solid var(--sm-line);
+                                                                                                                                                                                    border-radius:5px;
+                                                                                                                                                                                    color:var(--sm-ink);
+                                                                                                                                                                                    background:var(--sm-surface);
+                                                                                                                                                                                    padding:6px;
+                                                                                                                                                                                    font-size:11px}
+                                                                                                                                                                                    .sm-terminal{
+                                                                                                                                                                                      font:11px/1.9 ui-monospace,SFMono-Regular,Consolas,monospace;
+                                                                                                                                                                                      white-space:pre-wrap;
+                                                                                                                                                                                      overflow-wrap:anywhere;
+                                                                                                                                                                                      background:var(--sm-nav);
+                                                                                                                                                                                      color:var(--sm-navink);
+                                                                                                                                                                                      padding:20px;
+                                                                                                                                                                                      margin:0}
+                                                                                                                                                                                      .sm-apache summary{
+                                                                                                                                                                                        padding:15px 21px;
+                                                                                                                                                                                        font-size:12px}
+                                                                                                                                                                                        .sm-connectiongrid{
+                                                                                                                                                                                          display:grid;
+                                                                                                                                                                                          grid-template-columns:repeat(2,minmax(0,1fr));
+                                                                                                                                                                                          gap:0 30px;
+                                                                                                                                                                                          padding:0 21px 22px}
+                                                                                                                                                                                          .sm-connection-item{
+                                                                                                                                                                                            padding:17px 0;
+                                                                                                                                                                                            border-top:1px solid var(--sm-line)}
+                                                                                                                                                                                            .sm-connection-item span{
+                                                                                                                                                                                              font-size:11px;
+                                                                                                                                                                                              color:var(--sm-muted);
+                                                                                                                                                                                              display:block}
+                                                                                                                                                                                              .sm-connection-item strong{
+                                                                                                                                                                                                font-size:13px;
+                                                                                                                                                                                                overflow-wrap:anywhere;
+                                                                                                                                                                                                display:block;
+                                                                                                                                                                                                margin-top:4px;
+                                                                                                                                                                                                font-weight:600}
+                                                                                                                                                                                                .sm-sectionnote{
+                                                                                                                                                                                                  font-size:11px;
+                                                                                                                                                                                                  color:var(--sm-muted);
+                                                                                                                                                                                                  padding:0 21px 12px;
+                                                                                                                                                                                                  margin:0}
+                                                                                                                                                                                                  .sm-demo-controls{
+                                                                                                                                                                                                    padding:0 21px 20px;
+                                                                                                                                                                                                    display:flex;
+                                                                                                                                                                                                    gap:10px;
+                                                                                                                                                                                                    flex-wrap:wrap}
+                                                                                                                                                                                                    .sm-notice{
+                                                                                                                                                                                                      padding:12px;
+                                                                                                                                                                                                      background:var(--sm-redbg);
+                                                                                                                                                                                                      color:var(--sm-red);
+                                                                                                                                                                                                      border-radius:7px;
+                                                                                                                                                                                                      margin-top:15px;
+                                                                                                                                                                                                      font-size:12px}
+                                                                                                                                                                                                      .sm-footer{
+                                                                                                                                                                                                        display:flex;
+                                                                                                                                                                                                        justify-content:space-between;
+                                                                                                                                                                                                        gap:10px;
+                                                                                                                                                                                                        color:var(--sm-muted);
+                                                                                                                                                                                                        font-size:11px;
+                                                                                                                                                                                                        margin-top:25px}
+                                                                                                                                                                                                        .sm-toast{
+                                                                                                                                                                                                          background:var(--sm-nav);
+                                                                                                                                                                                                          color:var(--sm-navink);
+                                                                                                                                                                                                          padding:10px 18px;
+                                                                                                                                                                                                          border-radius:7px;
+                                                                                                                                                                                                          margin-top:15px;
+                                                                                                                                                                                                          font-size:12px}
+                                                                                                                                                                                                          .sm-sr{
+                                                                                                                                                                                                            position:absolute;
+                                                                                                                                                                                                            width:1px;
+                                                                                                                                                                                                            height:1px;
+                                                                                                                                                                                                            overflow:hidden;
+                                                                                                                                                                                                            clip:rect(0,0,0,0)}
+                                                                                                                                                                                                            @media(max-width:1050px){
+                                                                                                                                                                                                              .sm-app{
+                                                                                                                                                                                                                grid-template-columns:175px minmax(0,1fr)}
+                                                                                                                                                                                                                .sm-main{
+                                                                                                                                                                                                                  padding:0 20px 20px}
+                                                                                                                                                                                                                  .sm-nav{
+                                                                                                                                                                                                                    padding:28px 15px}
+                                                                                                                                                                                                                    .sm-filterbar{
+                                                                                                                                                                                                                      align-items:start;
+                                                                                                                                                                                                                      flex-direction:column}
+                                                                                                                                                                                                                      .sm-repo-url{
+                                                                                                                                                                                                                        max-width:180px}
+                                                                                                                                                                                                                        .sm-summary{
+                                                                                                                                                                                                                          gap:8px}
+                                                                                                                                                                                                                          .sm-stat{
+                                                                                                                                                                                                                            padding:14px 12px}
+                                                                                                                                                                                                                          }
+                                                                                                                                                                                                                          @media(max-width:760px){
+                                                                                                                                                                                                                            .sm-app{
+                                                                                                                                                                                                                              display:block;
+                                                                                                                                                                                                                              min-height:0}
+                                                                                                                                                                                                                              .sm-nav{
+                                                                                                                                                                                                                                padding:15px 18px;
+                                                                                                                                                                                                                                gap:15px}
+                                                                                                                                                                                                                                .sm-nav nav{
+                                                                                                                                                                                                                                  display:flex;
+                                                                                                                                                                                                                                  flex-wrap:wrap;
+                                                                                                                                                                                                                                  gap:5px}
+                                                                                                                                                                                                                                  .sm-navitem{
+                                                                                                                                                                                                                                    gap:10px}
+                                                                                                                                                                                                                                    .sm-node,.sm-navfoot{
+                                                                                                                                                                                                                                      display:none}
+                                                                                                                                                                                                                                      .sm-brand small{
+                                                                                                                                                                                                                                        display:none}
+                                                                                                                                                                                                                                        .sm-heading{
+                                                                                                                                                                                                                                          align-items:start;
+                                                                                                                                                                                                                                          flex-direction:column;
+                                                                                                                                                                                                                                          margin:24px 0 20px}
+                                                                                                                                                                                                                                          .sm-summary{
+                                                                                                                                                                                                                                            grid-template-columns:repeat(2,minmax(0,1fr))}
+                                                                                                                                                                                                                                            .sm-top{
+                                                                                                                                                                                                                                              flex-wrap:wrap}
+                                                                                                                                                                                                                                              .sm-panelhead{
+                                                                                                                                                                                                                                                align-items:start;
+                                                                                                                                                                                                                                                flex-direction:column}
+                                                                                                                                                                                                                                                .sm-search{
+                                                                                                                                                                                                                                                  width:100%}
+                                                                                                                                                                                                                                                  .sm-search input{
+                                                                                                                                                                                                                                                    width:100%;
+                                                                                                                                                                                                                                                    min-width:0}
+                                                                                                                                                                                                                                                    .sm-connectiongrid,.sm-detail-grid{
+                                                                                                                                                                                                                                                      grid-template-columns:1fr}
+                                                                                                                                                                                                                                                      .sm-transfer-top{
+                                                                                                                                                                                                                                                        flex-wrap:wrap}
+                                                                                                                                                                                                                                                        .sm-progress-foot{
+                                                                                                                                                                                                                                                          flex-wrap:wrap}
+                                                                                                                                                                                                                                                          .sm-event{
+                                                                                                                                                                                                                                                            grid-template-columns:60px 1fr}
+                                                                                                                                                                                                                                                            .sm-event-message{
+                                                                                                                                                                                                                                                              grid-column:1/-1}
+                                                                                                                                                                                                                                                              .sm-footer{
+                                                                                                                                                                                                                                                                flex-direction:column}
+                                                                                                                                                                                                                                                                .sm-detail-url{
+                                                                                                                                                                                                                                                                  flex-wrap:wrap}
+                                                                                                                                                                                                                                                                  .sm-main{
+                                                                                                                                                                                                                                                                    padding:0 14px 18px}
+                                                                                                                                                                                                                                                                  }
+                                                                                                                                                                                                                                                                  @media(prefers-reduced-motion:no-preference){
+                                                                                                                                                                                                                                                                    .sm-progress span{
+                                                                                                                                                                                                                                                                      transition:width .3s ease}
+                                                                                                                                                                                                                                                                    }
