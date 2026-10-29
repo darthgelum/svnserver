@@ -15,6 +15,8 @@ import tempfile
 import time
 import unittest
 from unittest.mock import patch
+from urllib.parse import quote
+import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import app
@@ -76,6 +78,38 @@ class RecoveryTests(unittest.TestCase):
         with app.worker_lock():
             self.assertFalse(app.sync_one(self.repo))
         self.assertEqual(app.prop(self.repo, 'svn:sync-lock'), 'retain-me')
+
+    def test_inherited_file_lock_is_removed_but_master_lock_survives(self):
+        self.check_inherited_file_lock('asset')
+
+    def test_inherited_file_lock_with_encoded_asset_name(self):
+        self.check_inherited_file_lock('asset space #?@é.uasset')
+
+    def check_inherited_file_lock(self, filename):
+        asset = self.root / 'asset'
+        asset.write_text('initial')
+        source_url = self.source.as_uri() + '/trunk/' + quote(filename, safe='') + '@'
+        mirror_url = self.url + '/trunk/' + quote(filename, safe='') + '@'
+        app.run(['svn', 'import', str(asset), source_url[:-1], '-m', 'asset', '--username', 'alice'])
+        with app.worker_lock():
+            self.assertTrue(app.sync_one(self.repo))
+        app.run(['svn', 'lock', mirror_url, '--username', 'bob'])
+        self.assertIn('Owner: bob', app.run(['svnadmin', 'lslocks', str(app.repo_path(self.repo))]))
+        wc = self.root / 'wc'
+        app.run(['svn', 'checkout', self.source.as_uri() + '/trunk', str(wc)])
+        app.run(['svn', 'lock', str(wc / filename) + '@', '--username', 'alice'])
+        (wc / filename).write_text('updated')
+        app.run(['svn', 'commit', str(wc), '-m', 'locked change', '--no-unlock', '--username', 'alice'])
+        before = app.run(['svn', 'info', '--xml', source_url])
+        with app.worker_lock():
+            self.assertTrue(app.sync_one(self.repo))
+        after = app.run(['svn', 'info', '--xml', source_url])
+        before_lock = {node.tag: node.text for node in ET.fromstring(before).find('entry/lock')}
+        after_lock = {node.tag: node.text for node in ET.fromstring(after).find('entry/lock')}
+        self.assertEqual(before_lock['owner'], 'alice')
+        self.assertEqual(before_lock, after_lock)
+        self.assertEqual(app.run(['svnadmin', 'lslocks', str(app.repo_path(self.repo))]), '')
+        self.assertEqual(app.run(['svn', 'cat', mirror_url]), 'updated')
 
     def test_active_repository_writer_prevents_lock_removal(self):
         self.setprop('svn:sync-lock', 'active-token')

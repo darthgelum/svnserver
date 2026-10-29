@@ -6,7 +6,7 @@
   const states = { ready: 'Синхронизирован', syncing: 'Передача', error: 'Ошибка', waiting: 'Ожидает' };
   const rev = value => value === null || value === undefined ? '—' : 'r' + value;
   const age = value => {
-    if (!value) return 'Ещё не было';
+    if (!value) return 'Нет записи';
     const seconds = Math.max(0, Math.floor(Date.now() / 1000 - value));
     return seconds < 60 ? seconds + ' с назад' : seconds < 3600 ? Math.floor(seconds / 60) + ' мин назад' : Math.floor(seconds / 3600) + ' ч назад';
   };
@@ -42,7 +42,7 @@
     const grid = el('div', 'sm-detail-grid');
     const info = [['Подтверждено svnsync', rev(repo.last_merged_revision)], ['Проверка главной ревизии', stamp(repo.master_checked_at)], ['Последняя успешная синхронизация', stamp(repo.last_success_at)], ['Текущая ревизия в передаче', rev(repo.progress.copying_revision)], ['Данные текущей транзакции', bytes(repo.progress.transaction_bytes)], ['Автовосстановление блокировки', stamp(repo.recovery)]];
     info.forEach(([label, value]) => { const cell = el('div'); cell.append(el('span', '', label), el('strong', '', value)); grid.append(cell); }); pane.append(grid);
-    if (repo.error) pane.append(el('div', 'sm-errorbox', (repo.state === 'syncing' ? 'Предыдущая ошибка: ' : '') + repo.error));
+    if (repo.error) pane.append(el('div', 'sm-errorbox', (repo.state === 'syncing' ? 'Предыдущая ошибка' : 'Ошибка проверки') + ' · ' + stamp(repo.checked_at) + ': ' + repo.error));
     pane.append(el('p', 'sm-sectionnote', repo.published ? 'URL опубликован для клиентов. Новые ревизии доступны после докачки.' : 'URL ещё не опубликован: требуется успешный проход синхронизации.'));
     pane.append(button('События этого репозитория →', () => { $('log-repo').value = repo.name; setView('logs'); renderLogs(); }, 'sm-button sm-quiet'));
   }

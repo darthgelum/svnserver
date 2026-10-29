@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 import time
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 import urllib.request
 import xml.etree.ElementTree as ET
 import auto
@@ -229,7 +229,7 @@ def sync_one(repo, full_props=False):
         return False
 
 
-def recover_replication_lock(repo):
+def check_mirror_maintenance(repo):
     worker.require_lock(DATA / 'status' / 'worker.lock')
     worker.require_lock(repository_lock_path(repo))
     if prop(repo, 'svn:sync-from-url') != repo.get('source_url', repo['master_url']):
@@ -240,6 +240,41 @@ def recover_replication_lock(repo):
     for name in ('pre-commit', 'pre-revprop-change', 'pre-lock', 'pre-unlock'):
         if (repo_path(repo) / 'hooks' / name).read_bytes() != expected:
             raise RuntimeError('Refusing automatic recovery: mirror write guard differs')
+
+
+def recover_local_file_locks(repo):
+    """Discard locks inherited with a seed; lock truth lives on the master.
+
+    Never call against a master or an independently writable repository. Match
+    each listed token through local RA before deleting anything, then verify the
+    resulting list. This refuses ambiguous/multiline paths rather than guessing.
+    """
+    check_mirror_maintenance(repo)
+    path = str(repo_path(repo))
+    env = dict(os.environ, LC_ALL='C.UTF-8')
+    listing = run(['svnadmin', 'lslocks', path], env=env)
+    if not listing:
+        return
+    locks = re.findall(r'^Path: (/[^\r\n]*)\r?\nUUID Token: ([^\r\n]+)\r?\n', listing, re.M)
+    if not locks or len(locks) != len(re.findall(r'^UUID Token: ', listing, re.M)):
+        raise RuntimeError('Cannot safely parse inherited local locks; no file locks removed')
+    for locked_path, token in locks:
+        document = ET.fromstring(run(['svn', 'info', '--xml',
+                                      local_url(repo) + quote(locked_path, safe='/') + '@']))
+        if document.findtext('entry/lock/token') != token:
+            raise RuntimeError('Local lock identity differs; no file locks removed')
+    auto.atomic_json(DATA / 'status' / (repo['name'] + '-last-file-lock-cleanup.json'),
+                     {'checked_at': time.time(), 'paths': [item[0] for item in locks],
+                      'reason': 'mirror-only locks; metadata/locking forwarded to master'})
+    for locked_path, token in locks:
+        run(['svnadmin', 'rmlocks', path, locked_path], env=env)
+    if run(['svnadmin', 'lslocks', path], env=env):
+        raise RuntimeError('Inherited local lock cleanup failed verification')
+    event(repo, f'Removed {len(locks)} inherited local file locks; master user locks unchanged', 'warning')
+
+
+def recover_replication_lock(repo):
+    check_mirror_maintenance(repo)
     # Read using the destination RA client and verify the mutation through the
     # same API. Preserve currently-copying and all other recovery checkpoints.
     def properties():
@@ -298,6 +333,7 @@ def sync_one_locked(repo, full_props=False):
         if int(run(['svnlook', 'youngest', str(repo_path(repo))])) > head:
             raise RuntimeError('Mirror history is ahead of source; refusing automatic recovery/synchronization')
         recover_replication_lock(repo)
+        recover_local_file_locks(repo)
         transfer(repo, 'synchronize', head)
         if full_props:
             recover_replication_lock(repo)

@@ -258,6 +258,14 @@ uses the same checks and explicitly reports successful verification. This is a
 replication lock, not a user file lock. No permanent lock stealing or disabled
 locking is used; master-side user file locks are not removed.
 
+File locks inherited with an existing repository copy can also block replay with
+`E160039: User ... does not own lock`. Before replay, the same exclusive maintenance
+checks remove these **mirror-local** locks automatically. Listed paths/tokens are
+verified through local SVN metadata before mutation, the result is checked and
+an audit record is kept in `status/NAME-last-file-lock-cleanup.json`. The real file
+locks on the main server are preserved and remain authoritative for clients.
+Ambiguous/unparseable lock listings fail safely instead of guessing paths.
+
 History transfers stream redacted SVN output and report local/merged/copying
 revisions, transaction size, elapsed time and inactivity every 30 seconds. Active
 transfers have no total-duration cap by default, even if `SYNC_TIMEOUT_SECONDS`
