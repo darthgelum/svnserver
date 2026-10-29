@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import socket
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,31 @@ import app
 
 
 class StatusHTTPTests(unittest.TestCase):
+    def test_image_permissions_normalize_owner_only_source_modes(self):
+        source = Path(app.__file__).parent
+        with tempfile.TemporaryDirectory(prefix='svn-image-modes-') as directory:
+            code = Path(directory) / 'code'
+            code.mkdir(mode=0o700)
+            names = ('app.py', 'auto.py', 'worker.py', 'telemetry.py', 'dashboard.py',
+                     'write-guard', 'discovery.cgi', 'status.cgi', 'log-errors',
+                     'web/index.html', 'web/app.js', 'web/style.css', 'web/demo.js')
+            for name in names:
+                path = code / name
+                path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                path.write_bytes((source / name).read_bytes())
+                path.chmod(0o600)
+            # Exercise the actual final Dockerfile RUN instruction rather than
+            # reproducing chmod logic in a test. Docker itself runs it as root.
+            command = (source / 'Dockerfile').read_text().rsplit('\nRUN ', 1)[1].split('\nEXPOSE', 1)[0]
+            command = command.replace('\\\n', '').replace('/opt/svnmirror', shlex.quote(str(code)))
+            subprocess.run(['sh', '-eu', '-c', command], check=True)
+            for path in [code, *(code.rglob('*'))]:
+                mode = path.stat().st_mode & 0o777
+                if path.is_dir() or path.name in ('write-guard', 'discovery.cgi', 'status.cgi', 'log-errors'):
+                    self.assertEqual(mode, 0o755, str(path))
+                else:
+                    self.assertEqual(mode, 0o644, str(path))
+
     def test_real_apache_auth_cgi_and_bounded_error_log(self):
         apache = os.getenv('APACHE_BINARY') or shutil.which('apache2')
         if not apache:

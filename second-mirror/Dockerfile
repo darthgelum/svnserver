@@ -15,7 +15,11 @@ COPY app.py /opt/svnmirror/app.py
 COPY write-guard /opt/svnmirror/write-guard
 COPY auto.py worker.py telemetry.py dashboard.py discovery.cgi status.cgi log-errors /opt/svnmirror/
 COPY web/ /opt/svnmirror/web/
-RUN chmod 755 /opt/svnmirror/write-guard /opt/svnmirror/discovery.cgi /opt/svnmirror/status.cgi /opt/svnmirror/log-errors
+# Synology/Git working copies may supply owner-only modes to COPY. Normalize
+# image code and assets, independently of the host ACLs. No runtime data here.
+RUN find /opt/svnmirror -type d -exec chmod 755 {} \; \
+    && find /opt/svnmirror -type f -exec chmod 644 {} \; \
+    && chmod 755 /opt/svnmirror/write-guard /opt/svnmirror/discovery.cgi /opt/svnmirror/status.cgi /opt/svnmirror/log-errors
 EXPOSE 80 81
 ENTRYPOINT ["/usr/bin/tini", "--", "python3", "/opt/svnmirror/app.py"]
 CMD ["serve"]
