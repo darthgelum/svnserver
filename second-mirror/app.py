@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Independent HTTP SVN mirror; never imports or edits the USVN installation."""
 import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -242,32 +243,91 @@ def check_mirror_maintenance(repo):
             raise RuntimeError('Refusing automatic recovery: mirror write guard differs')
 
 
+def fsfs_lock_records(repo):
+    """Read FSFS hash records, including locks detached from the tree index.
+
+    A non-atomic seed copy can lose a parent's children index while retaining
+    the lock record used by commits. Never edit these files; native SVN will
+    validate and remove each candidate through its own locking API.
+    """
+    if (repo_path(repo) / 'db/fs-type').read_text().strip() != 'fsfs':
+        return {}  # Other backends use the native lock listing only.
+    records = {}
+    for path in sorted((repo_path(repo) / 'db/locks').rglob('*')):
+        if not path.is_file():
+            continue
+        if path.is_symlink():
+            raise RuntimeError('Refusing a symlink in the local FSFS lock store')
+        with path.open('rb') as handle:
+            raw = handle.read(16 * 1024 * 1024 + 1)
+        if len(raw) > 16 * 1024 * 1024:
+            raise RuntimeError('Local FSFS lock record is too large; no file locks removed')
+        stream, values = io.BytesIO(raw), {}
+        while True:
+            header = stream.readline()
+            if header == b'END\n' and stream.read() == b'':
+                break
+            match = re.fullmatch(rb'K ([0-9]+)\n', header)
+            if not match:
+                raise RuntimeError('Invalid local FSFS lock record; no file locks removed')
+            key = stream.read(int(match[1]))
+            if stream.read(1) != b'\n':
+                raise RuntimeError('Invalid local FSFS lock key')
+            match = re.fullmatch(rb'V ([0-9]+)\n', stream.readline())
+            if not match:
+                raise RuntimeError('Invalid local FSFS lock value header')
+            value = stream.read(int(match[1]))
+            if len(value) != int(match[1]) or stream.read(1) != b'\n' or key in values:
+                raise RuntimeError('Invalid local FSFS lock value')
+            values[key] = value
+        if b'path' not in values and b'token' not in values:
+            continue  # Directory index, not a file lock.
+        locked_path = values.get(b'path', b'').decode('utf-8')
+        token = values.get(b'token', b'').decode('utf-8')
+        if not locked_path.startswith('/') or not token or re.search(r'[\r\n\x00]', locked_path + token):
+            raise RuntimeError('Ambiguous local FSFS lock identity; no file locks removed')
+        if locked_path in records and records[locked_path] != token:
+            raise RuntimeError('Conflicting local FSFS lock records')
+        records[locked_path] = token
+    return records
+
+
 def recover_local_file_locks(repo):
     """Discard locks inherited with a seed; lock truth lives on the master.
 
     Never call against a master or an independently writable repository. Match
-    each listed token through local RA before deleting anything, then verify the
+    each candidate token through svnlook before deleting anything, then verify the
     resulting list. This refuses ambiguous/multiline paths rather than guessing.
     """
     check_mirror_maintenance(repo)
     path = str(repo_path(repo))
     env = dict(os.environ, LC_ALL='C.UTF-8')
     listing = run(['svnadmin', 'lslocks', path], env=env)
-    if not listing:
-        return
     locks = re.findall(r'^Path: (/[^\r\n]*)\r?\nUUID Token: ([^\r\n]+)\r?\n', listing, re.M)
-    if not locks or len(locks) != len(re.findall(r'^UUID Token: ', listing, re.M)):
+    if listing and (not locks or len(locks) != len(re.findall(r'^UUID Token: ', listing, re.M))):
         raise RuntimeError('Cannot safely parse inherited local locks; no file locks removed')
+    candidates = fsfs_lock_records(repo)
     for locked_path, token in locks:
-        document = ET.fromstring(run(['svn', 'info', '--xml',
-                                      local_url(repo) + quote(locked_path, safe='/') + '@']))
-        if document.findtext('entry/lock/token') != token:
+        if candidates.get(locked_path, token) != token:
+            raise RuntimeError('Local lock listing and storage differ; no file locks removed')
+        candidates[locked_path] = token
+    locks = []
+    for locked_path, token in candidates.items():
+        info = run(['svnlook', 'lock', path, locked_path], env=env)
+        if not info:
+            continue  # An expired physical record is no longer an active lock.
+        if re.findall(r'^UUID Token: ([^\r\n]+)\r?$', info, re.M) != [token]:
             raise RuntimeError('Local lock identity differs; no file locks removed')
+        locks.append((locked_path, token))
+    if not locks:
+        return
     auto.atomic_json(DATA / 'status' / (repo['name'] + '-last-file-lock-cleanup.json'),
                      {'checked_at': time.time(), 'paths': [item[0] for item in locks],
                       'reason': 'mirror-only locks; metadata/locking forwarded to master'})
     for locked_path, token in locks:
         run(['svnadmin', 'rmlocks', path, locked_path], env=env)
+        if run(['svnlook', 'lock', path, locked_path], env=env):
+            raise RuntimeError('Local file lock removal failed direct verification')
     if run(['svnadmin', 'lslocks', path], env=env):
         raise RuntimeError('Inherited local lock cleanup failed verification')
     event(repo, f'Removed {len(locks)} inherited local file locks; master user locks unchanged', 'warning')

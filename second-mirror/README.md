@@ -265,6 +265,9 @@ verified through local SVN metadata before mutation, the result is checked and
 an audit record is kept in `status/NAME-last-file-lock-cleanup.json`. The real file
 locks on the main server are preserved and remain authoritative for clients.
 Ambiguous/unparseable lock listings fail safely instead of guessing paths.
+FSFS lock records are also checked for locks detached from an incomplete directory
+index in a seed copy. Each candidate must match `svnlook lock`; removal still uses
+`svnadmin rmlocks` and is verified directly, without editing lock-store files.
 
 History transfers stream redacted SVN output and report local/merged/copying
 revisions, transaction size, elapsed time and inactivity every 30 seconds. Active

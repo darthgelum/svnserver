@@ -99,7 +99,10 @@ class RecoveryTests(unittest.TestCase):
     def test_inherited_file_lock_with_encoded_asset_name(self):
         self.check_inherited_file_lock('asset space #?@é.uasset')
 
-    def check_inherited_file_lock(self, filename):
+    def test_inherited_file_lock_with_missing_directory_index(self):
+        self.check_inherited_file_lock('asset', orphan=True)
+
+    def check_inherited_file_lock(self, filename, orphan=False):
         asset = self.root / 'asset'
         asset.write_text('initial')
         source_url = self.source.as_uri() + '/trunk/' + quote(filename, safe='') + '@'
@@ -109,6 +112,13 @@ class RecoveryTests(unittest.TestCase):
             self.assertTrue(app.sync_one(self.repo))
         app.run(['svn', 'lock', mirror_url, '--username', 'bob'])
         self.assertIn('Owner: bob', app.run(['svnadmin', 'lslocks', str(app.repo_path(self.repo))]))
+        if orphan:
+            for record in (app.repo_path(self.repo) / 'db/locks').rglob('*'):
+                if record.is_file() and b'K 4\npath\n' not in record.read_bytes():
+                    record.unlink()
+            self.assertEqual(app.run(['svnadmin', 'lslocks', str(app.repo_path(self.repo))]), '')
+            self.assertIn('Owner: bob', app.run(['svnlook', 'lock', str(app.repo_path(self.repo)),
+                                               '/trunk/' + filename]))
         wc = self.root / 'wc'
         app.run(['svn', 'checkout', self.source.as_uri() + '/trunk', str(wc)])
         app.run(['svn', 'lock', str(wc / filename) + '@', '--username', 'alice'])
