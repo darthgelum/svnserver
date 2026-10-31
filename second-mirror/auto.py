@@ -397,7 +397,8 @@ def sync_passes(app, command):
                 old = read_json(DATA / 'status' / (repo['name'] + '.json'), {})
                 rescan = time.time() - old.get('revprops_checked_at', 0) >= int(os.getenv('REVPROP_RESCAN_SECONDS', '3600'))
                 ok = app.sync_one(repo, full_props=rescan or command == 'copy-revprops')
-                if ok:
+                state = read_json(DATA / 'status' / (repo['name'] + '.json'), {})
+                if ok and state.get('lag_revisions') == 0:
                     ready[repo['name']] = repo
                     # Publish each completed mirror immediately, even when another
                     # repository's first history transfer will take hours.

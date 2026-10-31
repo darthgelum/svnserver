@@ -82,6 +82,20 @@ class RecoveryTests(unittest.TestCase):
     def test_inherited_file_lock_is_removed_but_master_lock_survives(self):
         self.check_inherited_file_lock('asset')
 
+    def test_batched_replay_advances_without_premature_revprop_rescan(self):
+        for name in ('second', 'third'):
+            app.run(['svn', 'mkdir', self.source.as_uri() + '/' + name, '-m', name])
+        with patch.dict(os.environ, {'SYNC_BATCH_REVISIONS': '1'}), app.worker_lock():
+            for expected in (1, 2, 3):
+                self.assertTrue(app.sync_one(self.repo, full_props=True))
+                state = json.loads((self.data / 'status/Example.json').read_text())
+                self.assertEqual(state['local_revision'], expected)
+                self.assertEqual(state['lag_revisions'], 3 - expected)
+                if expected < 3:
+                    self.assertFalse(state.get('revprops_checked_at'))
+                else:
+                    self.assertTrue(state['revprops_checked_at'])
+
     def test_inherited_file_lock_with_encoded_asset_name(self):
         self.check_inherited_file_lock('asset space #?@é.uasset')
 

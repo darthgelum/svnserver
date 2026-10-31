@@ -292,7 +292,7 @@ def recover_replication_lock(repo):
     event(repo, 'Recovered stale replication lock; interrupted revision checkpoint preserved', 'warning')
 
 
-def transfer(repo, operation, head):
+def transfer(repo, operation, head, through_revision=None):
     name = repo['name']
     progress_path = DATA / 'status' / (name + '-progress.json')
     state = {'phase': operation, 'started_at': time.time(), 'master_revision': head}
@@ -309,9 +309,11 @@ def transfer(repo, operation, head):
               f'copying={state["copying_revision"] or "none"}, target=r{head}; '
               f'elapsed={elapsed}s idle={idle}s')
     try:
+        stop_when = ((lambda line: line == f'Copied properties for revision {through_revision}.')
+                     if through_revision is not None else None)
         worker.transfer(['svnsync', operation, local_url(repo), *source_auth(repo, sync=True)],
                         repo_path(repo), report,
-                        lambda line: event(repo, line), redact)
+                        lambda line: event(repo, line), redact, stop_when=stop_when)
         state['state'] = 'completed'
     except BaseException:
         state['state'] = 'interrupted'
@@ -334,8 +336,12 @@ def sync_one_locked(repo, full_props=False):
             raise RuntimeError('Mirror history is ahead of source; refusing automatic recovery/synchronization')
         recover_replication_lock(repo)
         recover_local_file_locks(repo)
-        transfer(repo, 'synchronize', head)
-        if full_props:
+        batch = max(0, int(os.getenv('SYNC_BATCH_REVISIONS', '0')))
+        local = int(run(['svnlook', 'youngest', str(repo_path(repo))]))
+        through = local + batch if batch and local + batch < head else None
+        transfer(repo, 'synchronize', head, through_revision=through)
+        caught_up = int(prop(repo, 'svn:sync-last-merged-rev')) >= head
+        if full_props and caught_up:
             recover_replication_lock(repo)
             transfer(repo, 'copy-revprops', head)
         local = int(run(['svnlook', 'youngest', str(repo_path(repo))]))
@@ -344,7 +350,7 @@ def sync_one_locked(repo, full_props=False):
         state = {'ok': True, 'checked_at': time.time(), 'last_success_at': time.time(), 'local_revision': local,
                  'last_merged_revision': merged, 'master_revision': head,
                  'lag_revisions': head - merged}
-        if full_props:
+        if full_props and caught_up:
             state['revprops_checked_at'] = time.time()
         else:
             old = DATA / 'status' / f'{name}.json'

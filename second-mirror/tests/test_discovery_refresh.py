@@ -16,6 +16,30 @@ import auto
 
 
 class DiscoveryRefreshTests(unittest.TestCase):
+    def test_partial_batch_is_not_published_until_caught_up(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory)
+            repo = {'name': 'Example'}
+            path = data / 'repositories/Example'
+            path.mkdir(parents=True)
+            status = data / 'status/Example.json'
+            lag = [2]
+
+            def sync_one(repo, full_props=False):
+                auto.atomic_json(status, {'ok': True, 'lag_revisions': lag[0]})
+                return True
+
+            app = SimpleNamespace(repo_path=lambda repo: path, prop=lambda *args: 'source',
+                                  sync_one=sync_one, SECRETS={})
+            with patch.object(auto, 'DATA', data), patch.object(auto, 'settings', return_value={}), \
+                    patch.object(auto, 'repositories', return_value=[repo]), \
+                    patch.object(auto, 'discovery_health', return_value=0):
+                self.assertEqual(auto.sync_passes(app, 'sync-once'), 0)
+                self.assertEqual(auto.published(), [])
+                lag[0] = 0
+                self.assertEqual(auto.sync_passes(app, 'sync-once'), 0)
+                self.assertEqual(auto.published(), [repo])
+
     def test_refresh_continues_and_recovers_during_blocked_transfer(self):
         with tempfile.TemporaryDirectory() as directory:
             data = Path(directory)

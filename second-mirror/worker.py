@@ -138,7 +138,7 @@ def terminate(process):
         process.wait()
 
 
-def transfer(args, repository, report, emit, redact):
+def transfer(args, repository, report, emit, redact, stop_when=None):
     """Keep completed revisions; abort only idle transfers or an explicit cap.
 
     SVN stdout/stderr is drained continuously. All held flocks are inherited by
@@ -153,7 +153,8 @@ def transfer(args, repository, report, emit, redact):
     tail = deque(maxlen=30)
     process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                text=True, encoding='utf-8', errors='replace',
-                               start_new_session=True, pass_fds=descriptors())
+                               start_new_session=True, pass_fds=descriptors(),
+                               env={**os.environ, 'LC_ALL': 'C.UTF-8'})
 
     def drain():
         try:
@@ -177,6 +178,15 @@ def transfer(args, repository, report, emit, redact):
                     safe = redact(line)
                     tail.append(safe)
                     emit(safe)
+                    if stop_when is not None and stop_when(safe):
+                        # svnsync has no revision-range option. Yield only after
+                        # its completed revision-property checkpoint is reported.
+                        # Reap the writer before releasing either maintenance lock.
+                        terminate(process)
+                        report(process.pid, int(time.monotonic() - started), 0,
+                               activity(process, repository))
+                        emit('Revision batch completed; yielding to the next repository')
+                        return
             except queue.Empty:
                 pass
             now = time.monotonic()

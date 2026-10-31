@@ -278,6 +278,15 @@ partially transferred, uncommitted revision may need to be transferred again;
 this does not repeat adoption or download all earlier history. Discovery/auth
 polling continues independently. Missing permissions, corruption or an unreachable
 source remain real errors and are shown rather than silently bypassed.
+For a large initial backlog, set `SYNC_BATCH_REVISIONS=5` in `.env` and recreate
+`sync`. Each pass yields after five new revisions and their property checkpoint,
+then moves to the next repository. svnsync has no revision-range option, so yielding
+stops and reaps its writer; the next pass recovers the replication lock. A next
+revision that started before the stop may need to be replayed again. A single
+large revision can still take time. The default
+`0` keeps unlimited transfers. Full historical revision-property rescans wait until
+that repository catches up; newly discovered mirrors are published only after
+catching up. Existing published repositories stay available during catch-up.
 Container startup also clears stale Apache PID/CGI socket artifacts only when no
 Apache process is alive; it never removes repository or worker lock files.
 
@@ -414,6 +423,7 @@ mirror `.env` and credentials; do not overwrite a live setup with example files.
 | `SYNC_TIMEOUT_SECONDS` | General command/adoption timeout; default 21600 seconds; does not cap `synchronize`/`copy-revprops` |
 | `SYNC_TRANSFER_TIMEOUT_SECONDS` | Optional total history-transfer cap; default 0 (unlimited while active) |
 | `SYNC_IDLE_TIMEOUT_SECONDS` | Stop/retry a transfer with no output, I/O or active transaction-file changes; default 3600 seconds |
+| `SYNC_BATCH_REVISIONS` | Yield after this many new revision checkpoints per repository; default 0 (unlimited), e.g. 5 for backlog catch-up |
 | `SYNC_PROGRESS_SECONDS` | Transfer progress/heartbeat interval; default 30 seconds |
 | `SYNC_METADATA_TIMEOUT_SECONDS` | Source identity/HEAD query timeout; default 120 seconds |
 | `STATUS_USERS` | Comma-separated SVN logins allowed into the status page/API; default `svnmirror` |
