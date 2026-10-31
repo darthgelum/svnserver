@@ -182,6 +182,28 @@ with worker.exclusive(sys.argv[2], 'busy'):
         with app.worker_lock():
             pass
 
+    def test_cpu_spin_without_io_does_not_reset_idle_watchdog(self):
+        pids = []
+        with patch.dict(os.environ, {'SYNC_IDLE_TIMEOUT_SECONDS': '2'}):
+            with self.assertRaisesRegex(RuntimeError, 'no activity'):
+                worker.transfer([sys.executable, '-c', 'while True: pass'],
+                                app.repo_path(self.repo), lambda pid, *args: pids.append(pid), print, app.redact)
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pids[0], 0)
+
+    def test_transaction_progress_excludes_abandoned_replays(self):
+        repo = app.repo_path(self.repo)
+        protorevs = repo / 'db/txn-protorevs'
+        transactions = repo / 'db/transactions'
+        for name in ('old', 'active'):
+            (transactions / (name + '.txn')).mkdir()
+            (transactions / (name + '.txn') / 'changes').write_bytes(b'123')
+            (protorevs / (name + '.rev')).write_bytes(b'45678')
+        with (protorevs / 'active.rev').open('rb'):
+            evidence = worker.activity(type('Process', (), {'pid': os.getpid()})(), repo)
+        self.assertEqual(sum(item[1] for item in evidence[2]), 8)
+        self.assertEqual(len(evidence[2]), 2)
+
     def test_stop_during_transfer_terminates_writer_before_unlock(self):
         pids = []
         def stopped(pid, *args):

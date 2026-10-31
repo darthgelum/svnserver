@@ -88,13 +88,30 @@ def activity(process, repository):
         io = tuple(counters.get(k, '').strip() for k in ('rchar', 'wchar', 'read_bytes', 'write_bytes'))
     except (OSError, IndexError):
         pass  # Process may have just exited.
+    # Only the current writer's transaction belongs in live progress. Failed
+    # replays can leave older transactions containing gigabytes of stale data.
+    active = set()
+    try:
+        for descriptor in (proc / 'fd').iterdir():
+            try:
+                path = Path(os.readlink(descriptor))
+                if path.parent == Path(repository) / 'db/txn-protorevs' and path.name.endswith('.rev'):
+                    active.add(path.name[:-4])
+            except OSError:
+                pass
+    except OSError:
+        pass
     transactions = []
     for parent in ('transactions', 'txn-protorevs'):
         root = Path(repository) / 'db' / parent
         if not root.exists():
             continue
         for folder, dirs, files in os.walk(root, followlinks=False):
+            if Path(folder) == root:
+                dirs[:] = [name for name in dirs if name.endswith('.txn') and name[:-4] in active]
             for name in sorted(files):
+                if parent == 'txn-protorevs' and name not in {item + '.rev' for item in active}:
+                    continue
                 path = Path(folder) / name
                 try:
                     stat = path.stat()
@@ -165,7 +182,9 @@ def transfer(args, repository, report, emit, redact):
             now = time.monotonic()
             if previous is None or now - last_report >= interval:
                 current = activity(process, repository)
-                if current != previous:
+                # A disconnected serf client can spin at 100% CPU indefinitely.
+                # CPU usage alone is not evidence that a replay is progressing.
+                if previous is None or current[1:] != previous[1:]:
                     last_activity = now
                 previous, last_report = current, now
                 report(process.pid, int(now - started), int(now - last_activity), current)

@@ -269,8 +269,10 @@ Ambiguous/unparseable lock listings fail safely instead of guessing paths.
 History transfers stream redacted SVN output and report local/merged/copying
 revisions, transaction size, elapsed time and inactivity every 30 seconds. Active
 transfers have no total-duration cap by default, even if `SYNC_TIMEOUT_SECONDS`
-still contains the old 21600 value. An inactivity watchdog samples writer CPU/I/O
-and transaction file changes; after one hour without activity it stops the writer.
+still contains the old 21600 value. An inactivity watchdog samples writer I/O
+and active transaction file changes; after one hour without activity it stops the writer.
+CPU usage alone does not reset this timer: a disconnected client can spin without
+making progress. Transaction size excludes abandoned transactions from older attempts.
 The next pass automatically recovers and retries from committed revisions. A
 partially transferred, uncommitted revision may need to be transferred again;
 this does not repeat adoption or download all earlier history. Discovery/auth
@@ -411,7 +413,7 @@ mirror `.env` and credentials; do not overwrite a live setup with example files.
 | `DISCOVERY_INTERVAL_SECONDS` | Delay between catalog/auth refreshes during `sync-loop`, independent of history transfers; default 30 seconds |
 | `SYNC_TIMEOUT_SECONDS` | General command/adoption timeout; default 21600 seconds; does not cap `synchronize`/`copy-revprops` |
 | `SYNC_TRANSFER_TIMEOUT_SECONDS` | Optional total history-transfer cap; default 0 (unlimited while active) |
-| `SYNC_IDLE_TIMEOUT_SECONDS` | Stop/retry a transfer with no output, CPU/I/O or transaction-file activity; default 3600 seconds |
+| `SYNC_IDLE_TIMEOUT_SECONDS` | Stop/retry a transfer with no output, I/O or active transaction-file changes; default 3600 seconds |
 | `SYNC_PROGRESS_SECONDS` | Transfer progress/heartbeat interval; default 30 seconds |
 | `SYNC_METADATA_TIMEOUT_SECONDS` | Source identity/HEAD query timeout; default 120 seconds |
 | `STATUS_USERS` | Comma-separated SVN logins allowed into the status page/API; default `svnmirror` |
