@@ -156,7 +156,9 @@ This has two practical limits:
 - Network SVN operations need connectivity to the main server. Files already in a
   working copy remain available during an outage; cached status icons may be stale.
 - A new revision must reach the mirror before its files can be downloaded locally.
-  An Update attempted during replication lag can fail; retry after synchronization.
+  Until then, GET/HEAD requests for those new immutable revisions are proxied to
+  the main server with the client's credentials, allowing immediate Update after
+  Commit. Once replication catches up, the same URLs are served locally.
 
 Properties, logs, and other metadata still cross the WAN. There is no offline commit
 queue, automatic promotion to master, or multi-master repository merging.
