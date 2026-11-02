@@ -7,7 +7,7 @@ import tempfile
 import time
 import uuid
 
-IMAGE = 'svn-second-mirror:local'
+IMAGE = os.getenv('SVN_TEST_IMAGE', 'svn-second-mirror:local')
 PREFIX = 'svnmirror-test-' + uuid.uuid4().hex[:10]
 containers, volumes = [], []
 
@@ -154,12 +154,28 @@ htpasswd -b /fixture/auth/htpasswd reader test-pass
         assert svn('commit', '/tmp/bob', '-m', 'no lock', user='bob', ok=False).returncode != 0
         svn('revert', '/tmp/bob/asset.uasset', user='bob')
         call('exec', mirror_name, 'bash', '-c', 'printf good >> /tmp/alice/asset.uasset')
+        call('exec', mirror_name, 'python3', '-c',
+             'from pathlib import Path; Path("/tmp/alice/asset space #?é.uasset").write_bytes(b"new special asset")')
         svn('commit', '/tmp/alice', '-m', 'locked asset commit')
         assert '<lock>' not in svn('info', '--xml', local + '/trunk/asset.uasset', user='bob').stdout
         assert call('exec', mirror_name, 'svnlook', 'youngest', '/data/repositories/Example') == head
-        sync('sync-once')
+        # Immediate Update after Commit must work before replication catches up.
+        # Only missing immutable revisions go to the master, with URL escaping
+        # and user authorization preserved; the mirror remains read-only.
         before = docker('logs', master_name).stdout
         svn('update', '/tmp/bob', user='bob')
+        assert '"GET ' in docker('logs', master_name).stdout[len(before):]
+        assert call('exec', mirror_name, 'cat', '/tmp/bob/asset space #?é.uasset') == 'new special asset'
+        assert call('exec', mirror_name, 'svnlook', 'youngest', '/data/repositories/Example') == head
+        current = call('exec', master_name, 'svnlook', 'youngest', '/repositories/Example')
+        call('exec', mirror_name, 'python3', '-c',
+             'import urllib.request,base64; '
+             f'r=urllib.request.Request("{local}/!svn/rvr/{current}/trunk/asset.uasset", '
+             'method="HEAD", headers={"Authorization":"Basic "+base64.b64encode(b"bob:test-pass").decode()}); '
+             'assert urllib.request.urlopen(r).status == 200')
+        sync('sync-once')
+        before = docker('logs', master_name).stdout
+        svn('checkout', local + '/trunk', '/tmp/caught-up', user='bob')
         assert '"GET ' not in docker('logs', master_name).stdout[len(before):]
         # Direct master locks and force-steals must also be visible locally.
         svn('lock', 'http://master/svn/Example/trunk/asset.uasset', user='bob')

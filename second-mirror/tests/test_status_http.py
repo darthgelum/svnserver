@@ -29,7 +29,7 @@ class StatusHTTPTests(unittest.TestCase):
             code = Path(directory) / 'code'
             code.mkdir(mode=0o700)
             names = ('app.py', 'auto.py', 'worker.py', 'telemetry.py', 'dashboard.py',
-                     'write-guard', 'discovery.cgi', 'status.cgi', 'log-errors',
+                     'write-guard', 'read_route.py', 'discovery.cgi', 'status.cgi', 'log-errors',
                      'web/index.html', 'web/app.js', 'web/style.css', 'web/demo.js')
             for name in names:
                 path = code / name
@@ -43,7 +43,7 @@ class StatusHTTPTests(unittest.TestCase):
             subprocess.run(['sh', '-eu', '-c', command], check=True)
             for path in [code, *(code.rglob('*'))]:
                 mode = path.stat().st_mode & 0o777
-                if path.is_dir() or path.name in ('write-guard', 'discovery.cgi', 'status.cgi', 'log-errors'):
+                if path.is_dir() or path.name in ('write-guard', 'read_route.py', 'discovery.cgi', 'status.cgi', 'log-errors'):
                     self.assertEqual(mode, 0o755, str(path))
                 else:
                     self.assertEqual(mode, 0o644, str(path))

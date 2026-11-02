@@ -23,6 +23,9 @@ Clients -> mirror:18080 -> metadata, Lock/Unlock, Commit ------+
 - `sync` discovers repositories and access rules, then copies missing revisions.
 - `mirror` serves file contents locally. OPTIONS / PROPFIND / REPORT and write
   operations go to the main server, including all lock-state reads.
+- GET / HEAD requests for immutable SVN revisions not yet present locally go to
+  the main server with the client's own credentials. Once that revision arrives,
+  the same URL is served locally without restarting Apache.
 - `SVNAllowBulkUpdates Off` on the main endpoint forces skeletal update responses;
   clients fetch the file contents separately from the mirror. Do not remove it.
 - Port 18081 is an optional full proxy: all requests, including file downloads,
@@ -33,9 +36,10 @@ Repository reads authoritative state, including locks created directly on the ma
 server. Working copies and editors can still cache previously retrieved status.
 
 Network SVN operations require the main server. There are no offline commits or
-automatic failover. During replication lag a new revision can be visible in metadata
-before its files arrive locally: retry Update after the worker catches up. Metadata
-and properties still cross the WAN; the bandwidth saving applies to file contents.
+automatic failover. During replication lag, Update can temporarily fetch new file
+contents from the main server instead of failing with "No such revision". Already
+replicated revision contents stay local. Metadata and properties still cross the
+WAN; recent-file fallback downloads also cross it until replication catches up.
 
 ## 1. Main HTTP endpoint
 

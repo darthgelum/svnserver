@@ -502,6 +502,14 @@ def render(repos):
     RewriteCond %{{THE_REQUEST}} "^[^ ]+ (/[^ ?]*)"
     RewriteRule "^{re.escape(repo['path'])}(/.*)?$" "{origin.scheme}://{origin.netloc}%1" [P,L,NE]
     ProxyPassReverse "{repo['path']}" "{repo['master_url']}"''')
+            # Authoritative metadata can reference a just-committed revision
+            # before svnsync reaches it. Proxy only those immutable GET/HEADs;
+            # the same URL switches back to LAN as soon as db/current advances.
+            metadata.append(f'''RewriteCond %{{REQUEST_METHOD}} ^(?:GET|HEAD)$
+    RewriteCond %{{REQUEST_URI}} "^{re.escape(repo['path'])}/!svn/(?:rvr|bc|ver)/([0-9]+)(?:/|$)"
+    RewriteCond ${{mirror_revision:{repo['name']}/%1}} =master
+    RewriteCond %{{THE_REQUEST}} "^[^ ]+ (/[^ ?]*)"
+    RewriteRule "^{re.escape(repo['path'])}/!svn/(?:rvr|bc|ver)/[0-9]+(?:/.*)?$" "{origin.scheme}://{origin.netloc}%1" [P,L,NE]''')
             # Same URL path on a different port. All operations, including locks,
             # are authoritative on this port; no local lock replication is claimed.
             live.append(f'''ProxyPass "{repo['path']}" "{repo['master_url']}" nocanon
@@ -562,7 +570,8 @@ Timeout 21600
     </Location>'''
     else:
         header += 'ErrorLog /proc/self/fd/2\n'
-    document = header + '\n<VirtualHost *:80>\n    RewriteEngine On\n    ' + '\n    '.join(metadata) + '\n    ' + health + '\n    ' + status_location + '\n    ' + '\n    '.join(blocks) + '''
+    readmap = 'RewriteMap mirror_revision "prg:/opt/svnmirror/read_route.py"\n    ' if not master and repos else ''
+    document = header + '\n<VirtualHost *:80>\n    RewriteEngine On\n    ' + readmap + '\n    '.join(metadata) + '\n    ' + health + '\n    ' + status_location + '\n    ' + '\n    '.join(blocks) + '''
     CustomLog /proc/self/fd/1 combined
 </VirtualHost>
 '''
